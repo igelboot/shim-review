@@ -1,0 +1,3685 @@
+diff -Naurp grub2_2.02~beta3-4.ori/debian/control grub2_2.02~beta3-4/debian/control
+--- grub2_2.02~beta3-4.ori/debian/control	2017-04-27 14:10:50.025831000 +0200
++++ grub2_2.02~beta3-4/debian/control	2017-04-27 14:10:50.025831000 +0200
+@@ -14,13 +14,15 @@ Build-Depends: debhelper (>= 7.4.2~),
+  po-debconf,
+  help2man,
+  texinfo,
+- gcc-6,
+- gcc-6-multilib [i386 kopensolaris-i386 any-amd64 any-ppc64 any-sparc],
++# gcc-6,
++# gcc-6-multilib [i386 kopensolaris-i386 any-amd64 any-ppc64 any-sparc],
++ gcc,
++ gcc-multilib,
+  xfonts-unifont,
+  libfreetype6-dev,
+  gettext,
+  libdevmapper-dev [linux-any],
+- libgeom-dev (>= 8.2+ds1-1~) [kfreebsd-any] | libgeom-dev (<< 8.2) [kfreebsd-any],
++# libgeom-dev (>= 8.2+ds1-1~) [kfreebsd-any] | libgeom-dev (<< 8.2) [kfreebsd-any],
+  libsdl1.2-dev [!hurd-any],
+  xorriso,
+  qemu-system [i386 kfreebsd-i386 kopensolaris-i386 any-amd64],
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-cdboot-fix.patch grub2_2.02~beta3-4/debian/patches/IGEL-cdboot-fix.patch
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-cdboot-fix.patch	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-cdboot-fix.patch	2016-10-21 14:01:55.988908000 +0200
+@@ -0,0 +1,55 @@
++Index: igelworkdir/grub-core/disk/i386/pc/biosdisk.c
++===================================================================
++--- igelworkdir.orig/grub-core/disk/i386/pc/biosdisk.c
+++++ igelworkdir/grub-core/disk/i386/pc/biosdisk.c
++@@ -28,6 +28,7 @@
++ #include <grub/err.h>
++ #include <grub/term.h>
++ #include <grub/i18n.h>
+++#include <grub/env.h>
++ 
++ GRUB_MOD_LICENSE ("GPLv3+");
++ 
++@@ -291,6 +292,7 @@ grub_biosdisk_iterate (grub_disk_dev_ite
++ {
++   int num_floppies;
++   int drive;
+++  const char *probe_cd_drives_env = NULL;
++ 
++   /* For hard disks, attempt to read the MBR.  */
++   switch (pull)
++@@ -311,11 +313,34 @@ grub_biosdisk_iterate (grub_disk_dev_ite
++       return 0;
++ 
++     case GRUB_DISK_PULL_REMOVABLE:
+++      probe_cd_drives_env = grub_env_get("PROBE_CD_DRIVES");
++       if (cd_drive)
++ 	{
++ 	  if (grub_biosdisk_call_hook (hook, hook_data, cd_drive))
++ 	    return 1;
++ 	}
+++      else if (probe_cd_drives_env)
+++	{
+++        /* probe cd drive */
+++        for (drive = 0x9f; drive < 0xf0; drive++)
+++	  {
+++            struct grub_biosdisk_cdrp *cdrp
+++             = (struct grub_biosdisk_cdrp *) GRUB_MEMORY_MACHINE_SCRATCH_ADDR;
+++
+++            cd_drive = drive;
+++            grub_memset (cdrp, 0, sizeof (*cdrp));
+++            cdrp->size = sizeof (*cdrp);
+++            cdrp->media_type = 0xFF;
+++            if ((! grub_biosdisk_get_cdinfo_int13_extensions (cd_drive, cdrp))
+++                 && ((cdrp->media_type & GRUB_BIOSDISK_CDTYPE_MASK)
+++                    == GRUB_BIOSDISK_CDTYPE_NO_EMUL))
+++              {
+++               if (grub_biosdisk_call_hook (hook, hook_data, cd_drive))
+++                 return 1;
+++              }
+++            cd_drive = 0;
+++	  }
+++	}
++ 
++       /* For floppy disks, we can get the number safely.  */
++       num_floppies = grub_biosdisk_get_num_floppies ();
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-change-menu-text.patch grub2_2.02~beta3-4/debian/patches/IGEL-change-menu-text.patch
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-change-menu-text.patch	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-change-menu-text.patch	2016-06-15 09:13:37.153548000 +0200
+@@ -0,0 +1,102 @@
++--- a/grub-core/normal/main.c
+++++ b/grub-core/normal/main.c
++@@ -200,7 +200,7 @@ grub_normal_init_page (struct grub_term_
++  
++   grub_term_cls (term);
++ 
++-  msg_formatted = grub_xasprintf (_("GNU GRUB  version %s"), PACKAGE_VERSION);
+++  msg_formatted = grub_xasprintf ("IGEL Technology GmbH");
++   if (!msg_formatted)
++     return;
++  
++@@ -349,31 +349,17 @@ static grub_err_t
++ grub_normal_reader_init (int nested)
++ {
++   struct grub_term_output *term;
++-  const char *msg_esc = _("ESC at any time exits.");
++-  char *msg_formatted;
++-
++-  msg_formatted = grub_xasprintf (_("Minimal BASH-like line editing is supported. For "
++-				    "the first word, TAB lists possible command completions. Anywhere "
++-				    "else TAB lists possible device or file completions. %s"),
++-				  nested ? msg_esc : "");
++-  if (!msg_formatted)
++-    return grub_errno;
++ 
++   FOR_ACTIVE_TERM_OUTPUTS(term)
++   {
++     grub_normal_init_page (term, 1);
++     grub_term_setcursor (term, 1);
++-
++-    if (grub_term_width (term) > 3 + STANDARD_MARGIN + 20)
++-      grub_print_message_indented (msg_formatted, 3, STANDARD_MARGIN, term);
++-    else
++-      grub_print_message_indented (msg_formatted, 0, 0, term);
++-    grub_putcode ('\n', term);
++-    grub_putcode ('\n', term);
++-    grub_putcode ('\n', term);
+++    if (nested) {
+++    	grub_putcode ('\n', term);
+++    	grub_putcode ('\n', term);
+++    }
++   }
++-  grub_free (msg_formatted);
++- 
+++
++   return 0;
++ }
++ 
++--- a/grub-core/normal/menu_text.c
+++++ b/grub-core/normal/menu_text.c
++@@ -157,14 +157,13 @@ print_message (int nested, int edit, str
++ 
++   if (edit)
++     {
++-      ret += grub_print_message_indented_real (_("Minimum Emacs-like screen editing is \
++-supported. TAB lists completions. Press Ctrl-x or F10 to boot, Ctrl-c or F2 for a \
++-command-line or ESC to discard edits and return to the GRUB menu."),
+++      ret += grub_print_message_indented_real ("",
++ 					       STANDARD_MARGIN, STANDARD_MARGIN,
++ 					       term, dry_run);
++     }
++   else
++     {
+++#if 0
++       char *msg_translated;
++ 
++       msg_translated = grub_xasprintf (_("Use the %C and %C keys to select which "
++@@ -173,27 +172,22 @@ command-line or ESC to discard edits and
++ 				       GRUB_UNICODE_DOWNARROW);
++       if (!msg_translated)
++ 	return 0;
++-      ret += grub_print_message_indented_real (msg_translated, STANDARD_MARGIN,
+++#endif
+++      ret += grub_print_message_indented_real ("", STANDARD_MARGIN,
++ 					       STANDARD_MARGIN, term, dry_run);
++-
+++#if 0
++       grub_free (msg_translated);
++-
+++#endif
++       if (nested)
++ 	{
++ 	  ret += grub_print_message_indented_real
++-	    (_("Press enter to boot the selected OS, "
++-	       "`e' to edit the commands before booting "
++-	       "or `c' for a command-line. ESC to return previous menu."),
++-	     STANDARD_MARGIN, STANDARD_MARGIN, term, dry_run);
+++	    ("", STANDARD_MARGIN, STANDARD_MARGIN, term, dry_run);
++ 	}
++       else
++ 	{
++ 	  ret += grub_print_message_indented_real
++-	    (_("Press enter to boot the selected OS, "
++-	       "`e' to edit the commands before booting "
++-	       "or `c' for a command-line."),
++-	     STANDARD_MARGIN, STANDARD_MARGIN, term, dry_run);
++-	}	
+++	    ("", STANDARD_MARGIN, STANDARD_MARGIN, term, dry_run);
+++	}
++     }
++   return ret;
++ }
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-efi-fix.patch grub2_2.02~beta3-4/debian/patches/IGEL-efi-fix.patch
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-efi-fix.patch	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-efi-fix.patch	2016-10-13 16:41:16.025316000 +0200
+@@ -0,0 +1,31 @@
++Index: igelworkdir/grub-core/video/efi_gop.c
++===================================================================
++--- igelworkdir.orig/grub-core/video/efi_gop.c
+++++ igelworkdir/grub-core/video/efi_gop.c
++@@ -370,8 +370,9 @@ grub_video_gop_setup (unsigned int width
++       err = grub_gop_get_preferred_mode (&preferred_width, &preferred_height);
++       if (err || preferred_width >= 4096 || preferred_height >= 4096)
++ 	{
++-	  preferred_width = 800;
++-	  preferred_height = 600;
+++	  /* lang@igel: instead of 800x600 use 1024x768 for fall back */
+++	  preferred_width = 1024;
+++	  preferred_height = 768;
++ 	  grub_errno = GRUB_ERR_NONE;
++ 	}
++     }
++Index: igelworkdir/grub-core/video/efi_uga.c
++===================================================================
++--- igelworkdir.orig/grub-core/video/efi_uga.c
+++++ igelworkdir/grub-core/video/efi_uga.c
++@@ -226,8 +226,9 @@ grub_video_uga_setup (unsigned int width
++     grub_uint32_t d;
++     grub_uint32_t r;
++ 
+++    /* with gfxmode=auto use only modes with width > 800 */
++     if ((! efi_call_5 (uga->get_mode, uga, &w, &h, &d, &r)) &&
++-	((! width) || (width == w)) &&
+++	((! width && w > 800) || (width == w)) &&
++ 	((! height) || (height == h)) &&
++ 	((! depth) || (depth == d)))
++       {
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-fix-INTEL_HDMI_STICK-MMC-size.diff grub2_2.02~beta3-4/debian/patches/IGEL-fix-INTEL_HDMI_STICK-MMC-size.diff
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-fix-INTEL_HDMI_STICK-MMC-size.diff	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-fix-INTEL_HDMI_STICK-MMC-size.diff	2017-04-27 14:10:50.025831000 +0200
+@@ -0,0 +1,69 @@
++--- a/grub-core/disk/i386/pc/biosdisk.c
+++++ b/grub-core/disk/i386/pc/biosdisk.c
++@@ -334,6 +334,7 @@ grub_biosdisk_open (const char *name, gr
++ {
++   grub_uint64_t total_sectors = 0;
++   int drive;
+++  int workaround = 0;
++   struct grub_biosdisk_data *data;
++ 
++   drive = grub_biosdisk_get_drive (name);
++@@ -376,13 +377,23 @@ grub_biosdisk_open (const char *name, gr
++ 	    {
++ 	      data->flags = GRUB_BIOSDISK_FLAG_LBA;
++ 
++-	      if (drp->total_sectors)
++-		total_sectors = drp->total_sectors;
++-	      else
+++	      if (drp->total_sectors) {
+++                /* gottwald@igel.com INTEL Compute Stick MMC wrong size workaround */
+++                if (version == 0x30 && drp->total_sectors == 0xa000) {
+++                  workaround = 1;
+++	          data->sectors = 63;
+++	          data->heads = 255;
+++	          data->cylinders = 0;
+++                  total_sectors = GRUB_DISK_SIZE_UNKNOWN;
+++                } else {
+++		  total_sectors = drp->total_sectors;
+++                }
+++	      } else {
++                 /* Some buggy BIOSes doesn't return the total sectors
++                    correctly but returns zero. So if it is zero, compute
++                    it by C/H/S returned by the LBA BIOS call.  */
++                 total_sectors = ((grub_uint64_t) drp->cylinders)
++ 		  * drp->heads * drp->sectors;
+++              }
++ 	      if (drp->bytes_per_sector
++ 		  && !(drp->bytes_per_sector & (drp->bytes_per_sector - 1))
++ 		  && drp->bytes_per_sector >= 512
++@@ -396,7 +407,7 @@ grub_biosdisk_open (const char *name, gr
++ 	}
++     }
++ 
++-  if (! (data->flags & GRUB_BIOSDISK_FLAG_CDROM))
+++  if (! (data->flags & GRUB_BIOSDISK_FLAG_CDROM) && workaround == 0)
++     {
++       if (grub_biosdisk_get_diskinfo_standard (drive,
++ 					       &data->cylinders,
++@@ -506,8 +517,8 @@ grub_biosdisk_rw (int cmd, grub_disk_t d
++ 	  256 /* heads */ *
++ 	  63 /* spt */)
++ 	return grub_error (GRUB_ERR_OUT_OF_RANGE,
++-			   N_("attempt to read or write outside of disk `%s'"),
++-			   disk->name);
+++			   N_("attempt to read or write outside of disk `%s' to sector 0x%llx"),
+++			   disk->name, (unsigned long long) sector);
++ 
++       soff = ((grub_uint32_t) sector) % data->sectors + 1;
++       head = ((grub_uint32_t) sector) / data->sectors;
++@@ -516,8 +527,8 @@ grub_biosdisk_rw (int cmd, grub_disk_t d
++ 
++       if (coff >= data->cylinders)
++ 	return grub_error (GRUB_ERR_OUT_OF_RANGE,
++-			   N_("attempt to read or write outside of disk `%s'"),
++-			   disk->name);
+++			   N_("attempt to read or write outside of disk `%s' to sector 0x%llx"),
+++			   disk->name, (unsigned long long) sector);
++ 
++       if (grub_biosdisk_rw_standard (cmd + 0x02, data->drive,
++ 				     coff, hoff, soff, size, segment))
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-fix-secure-boot-loading-of-unsigned-kernel.diff grub2_2.02~beta3-4/debian/patches/IGEL-fix-secure-boot-loading-of-unsigned-kernel.diff
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-fix-secure-boot-loading-of-unsigned-kernel.diff	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-fix-secure-boot-loading-of-unsigned-kernel.diff	2017-11-27 12:56:08.846762000 +0100
+@@ -0,0 +1,13 @@
++--- a/grub-core/loader/i386/linux.c
+++++ b/grub-core/loader/i386/linux.c
++@@ -720,8 +720,8 @@ grub_cmd_linux (grub_command_t cmd __att
++ 		  using_linuxefi = 1;
++ 		  return GRUB_ERR_NONE;
++ 		}
++-	      grub_dprintf ("linux", "linuxefi failed (%d)\n", grub_errno);
++-	      grub_errno = GRUB_ERR_NONE;
+++              grub_error(GRUB_ERR_BAD_OS, "unsigned or wrong signed kernel image");
+++	      goto fail;
++ 	    }
++ 	}
++     }
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-hide-terminal-box.patch grub2_2.02~beta3-4/debian/patches/IGEL-hide-terminal-box.patch
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-hide-terminal-box.patch	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-hide-terminal-box.patch	2016-03-11 14:17:10.746516000 +0100
+@@ -0,0 +1,29 @@
++Description: grub2 terminal-box patch by IGEL
++This patch stretches the terminal-box to the size of the screen. This allows us
++to 'hide' the terminal box by setting the boot menu background and terminal background
++identical.
++Author: Eduard Göbl, IGEL Technology GmbH
++Origin: vendor, www.igel.com
++Last-Update: 2016-11-03
++Index: igelworkdir/grub-core/gfxmenu/view.c
++===================================================================
++--- igelworkdir.orig/grub-core/gfxmenu/view.c
+++++ igelworkdir/grub-core/gfxmenu/view.c
++@@ -72,10 +72,13 @@ grub_gfxmenu_view_new (const char *theme
++   view->screen.width = width;
++   view->screen.height = height;
++ 
++-  view->need_to_check_sanity = 1;
++-  view->terminal_border = 3;
++-  view->terminal_rect.width = view->screen.width * 7 / 10;
++-  view->terminal_rect.height = view->screen.height * 7 / 10;
+++  /* goebl@igel.com: Don't place the big black terminal box on top of the grub2 boot menu
+++   * We simply hide it by making it as big as the screen and setting the wallpaper as the
+++   * terminal background */
+++  view->need_to_check_sanity = 0;
+++  view->terminal_border = 0;
+++  view->terminal_rect.width = view->screen.width;
+++  view->terminal_rect.height = view->screen.height;
++   view->terminal_rect.x = view->screen.x + (view->screen.width
++                                             - view->terminal_rect.width) / 2;
++   view->terminal_rect.y = view->screen.y + (view->screen.height
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-integrate-igel-system-handling.diff grub2_2.02~beta3-4/debian/patches/IGEL-integrate-igel-system-handling.diff
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-integrate-igel-system-handling.diff	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-integrate-igel-system-handling.diff	2017-04-27 14:10:50.025831000 +0200
+@@ -0,0 +1,27 @@
++--- a/grub-core/Makefile.core.def
+++++ b/grub-core/Makefile.core.def
++@@ -1425,6 +1425,11 @@ module = {
++ };
++ 
++ module = {
+++  name = igelfs;
+++  common = fs/igelfs.c;
+++};
+++
+++module = {
++   name = zfs;
++   common = fs/zfs/zfs.c;
++   common = fs/zfs/zfs_lzjb.c;
++@@ -1824,6 +1829,12 @@ module = {
++ };
++ 
++ module = {
+++  name = part_igel;
+++  common = partmap/igel.c;
+++  common = partmap/directory.c;
+++};
+++
+++module = {
++   name = part_sunpc;
++   common = partmap/sunpc.c;
++ };
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-remove-unwanted-hotkeys.patch grub2_2.02~beta3-4/debian/patches/IGEL-remove-unwanted-hotkeys.patch
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-remove-unwanted-hotkeys.patch	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-remove-unwanted-hotkeys.patch	2016-05-04 11:07:35.032742000 +0200
+@@ -0,0 +1,28 @@
++--- a/grub-core/normal/menu.c
+++++ b/grub-core/normal/menu.c
++@@ -703,7 +703,9 @@ run_menu (grub_menu_t menu, int nested,
++ 
++   current_entry = default_entry;
++ 
+++#ifdef IGEL_DEBUG
++  refresh:
+++#endif
++   menu_init (current_entry, menu, nested);
++ 
++   /* Initialize the time.  */
++@@ -806,6 +808,7 @@ run_menu (grub_menu_t menu, int nested,
++               *auto_boot = 0;
++ 	      return current_entry;
++ 
+++#ifdef IGEL_DEBUG
++ 	    case '\e':
++ 	      if (nested)
++ 		{
++@@ -827,6 +830,7 @@ run_menu (grub_menu_t menu, int nested,
++ 		    grub_menu_entry_run (e);
++ 		}
++ 	      goto refresh;
+++#endif
++ 
++ 	    default:
++ 	      {
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/IGEL-vbe-fix.patch grub2_2.02~beta3-4/debian/patches/IGEL-vbe-fix.patch
+--- grub2_2.02~beta3-4.ori/debian/patches/IGEL-vbe-fix.patch	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/debian/patches/IGEL-vbe-fix.patch	2016-10-13 14:07:55.642286000 +0200
+@@ -0,0 +1,36 @@
++Index: igelworkdir/grub-core/video/i386/pc/vbe.c
++===================================================================
++--- igelworkdir.orig/grub-core/video/i386/pc/vbe.c
+++++ igelworkdir/grub-core/video/i386/pc/vbe.c
++@@ -963,7 +963,8 @@ grub_video_vbe_iterate (int (*hook) (con
++         {
++           /* Could not retrieve mode info, retreat.  */
++           grub_errno = GRUB_ERR_NONE;
++-          break;
+++          /* lang@igel: fix for buggy vbe: ignore wrong entries */
+++          continue;
++         }
++ 
++       vbe2videoinfo (*p, &vbe_mode_info, &mode_info);
++@@ -1000,8 +1001,9 @@ grub_video_vbe_setup (unsigned int width
++ 	     mode supported by the graphics card may not be safe for the
++ 	     display device.  */
++ 	  grub_errno = GRUB_ERR_NONE;
++-	  width = 640;
++-	  height = 480;
+++	  /* lang@igel: instead of 640x480 use 1024x768 for fall back */
+++	  width = 1024;
+++	  height = 768;
++ 	}
++     }
++ 
++@@ -1015,7 +1017,8 @@ grub_video_vbe_setup (unsigned int width
++         {
++           /* Could not retrieve mode info, retreat.  */
++           grub_errno = GRUB_ERR_NONE;
++-          break;
+++          /* lang@igel: fix for buggy vbe: ignore wrong entries */
+++          continue;
++         }
++ 
++       if ((vbe_mode_info.mode_attributes & GRUB_VBE_MODEATTR_SUPPORTED) == 0)
+diff -Naurp grub2_2.02~beta3-4.ori/debian/patches/series grub2_2.02~beta3-4/debian/patches/series
+--- grub2_2.02~beta3-4.ori/debian/patches/series	2017-10-20 10:40:24.478232000 +0200
++++ grub2_2.02~beta3-4/debian/patches/series	2017-11-27 12:56:08.846762000 +0100
+@@ -67,3 +67,12 @@ support_initrd-less_boot.patch
+ mount-ext4-fs-with-crypto-enabled.patch
+ headers_for_device_macros.patch
+ fix_check_for_sys_macros.patch
++IGEL-integrate-igel-system-handling.diff
++IGEL-fix-INTEL_HDMI_STICK-MMC-size.diff
++IGEL-hide-terminal-box.patch
++IGEL-remove-unwanted-hotkeys.patch
++IGEL-change-menu-text.patch
++IGEL-vbe-fix.patch
++IGEL-efi-fix.patch
++IGEL-cdboot-fix.patch
++IGEL-fix-secure-boot-loading-of-unsigned-kernel.diff
+diff -Naurp grub2_2.02~beta3-4.ori/debian/rules grub2_2.02~beta3-4/debian/rules
+--- grub2_2.02~beta3-4.ori/debian/rules	2017-07-27 11:32:23.913260000 +0200
++++ grub2_2.02~beta3-4/debian/rules	2017-07-27 11:32:23.913260000 +0200
+@@ -29,7 +29,7 @@ else
+ with_check := yes
+ endif
+ 
+-CC := gcc-6
++CC := gcc
+ 
+ confflags = \
+ 	PACKAGE_VERSION="$(deb_version)" PACKAGE_STRING="GRUB $(deb_version)" \
+@@ -114,7 +114,7 @@ endif
+ endif
+ 
+ %:
+-	dh $@ --parallel
++	dh $@ --parallel --with=quilt
+ 
+ override_dh_auto_configure: $(patsubst %,configure/%,$(BUILD_PACKAGES))
+ 
+diff -Naurp grub2_2.02~beta3-4.ori/grub-core/fs/igelfs.c grub2_2.02~beta3-4/grub-core/fs/igelfs.c
+--- grub2_2.02~beta3-4.ori/grub-core/fs/igelfs.c	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/grub-core/fs/igelfs.c	2017-11-27 12:56:08.846762000 +0100
+@@ -0,0 +1,902 @@
++/* igelfs.c - igelfs (kernel, splash and config) pseudo filesystem.  */
++/*
++ *  GRUB  --  GRand Unified Bootloader
++ *  Copyright (C) 2007,2008,2009,2013 Free Software Foundation, Inc.
++ *
++ *  This program is free software: you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation, either version 3 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include <grub/misc.h>
++#include <grub/disk.h>
++#include <grub/archelp.h>
++#include <grub/env.h>
++#include <grub/file.h>
++#include <grub/mm.h>
++#include <grub/dl.h>
++#include <grub/i18n.h>
++#include <grub/partition.h>
++#include <grub/igel_partition.h>
++
++#define  BOOTVERSION 1028
++
++GRUB_MOD_LICENSE ("GPLv3+");
++
++static struct igf_sect_hdr sh;
++static const grub_uint64_t end_section = 0xffffffffffffffff >> ((8 - sizeof(sh.next_section)) * 8);
++extern grub_uint32_t sys_first_section; /* Defined and set in partmap/igel.c */
++extern grub_uint32_t bspl_first_section; /* Defined and set in partmap/igel.c */
++extern grub_uint32_t cbspl_first_section; /* Defined and set in partmap/igel.c */
++
++enum { NONE, KERNEL, SPLASH, CONFIG };
++
++static grub_err_t igelfs_disk_read (grub_disk_t disk, grub_uint64_t offset, grub_size_t size, void *buf)
++{
++       grub_size_t len, read;
++       grub_err_t ret = 0;
++       grub_uint8_t *buffer;
++       grub_partition_t part = NULL;
++
++       /* Need to access the whole disk (IGEL DOS partition) */
++       /* Therefore we null out the partition infos here from the given disk. */
++       /* Otherwise the grub_disk_read() function might detect an access beyond the end of the device, */
++       /* if the IGEL system partition is fragmented across the IGELs DOS partition. */
++       if(disk->partition) {
++             offset += disk->partition->start << GRUB_DISK_SECTOR_BITS; /* Convert the offset to be disk-relative */
++             part = disk->partition; /* Save the current partition info */
++             disk->partition = NULL; /* Clear the disks partition info temporarily */
++       }
++
++       buffer = (grub_uint8_t *)buf;
++       read = 0;
++       len = size & ~(((grub_size_t)1<<GRUB_DISK_SECTOR_BITS)-1);
++       if (len > 0) {
++           /* it is ridiculus but efidisk seems to have problems if one reads bigger blocks as 32k */
++           while (read < len)
++           {
++               if (len - read > 0x8000) {
++                   ret = grub_disk_read (disk, (offset + read) >> GRUB_DISK_SECTOR_BITS, (offset + read) & ((1<<GRUB_DISK_SECTOR_BITS)-1), 0x8000, &buffer[read]);
++                   read += 0x8000;
++               } else {
++                   ret = grub_disk_read (disk, (offset + read) >> GRUB_DISK_SECTOR_BITS, (offset + read) & ((1<<GRUB_DISK_SECTOR_BITS)-1), len - read, &buffer[read]);
++                   read += len - read;
++               }
++               if (ret < 0) {
++                   disk->partition = part; /* Restore the partition info */
++                   return ret;
++               }
++           }
++       }
++
++       if (len < size) {
++           offset += len;
++           len = size - len;
++           ret = grub_disk_read (disk, offset >> GRUB_DISK_SECTOR_BITS, offset & ((1<<GRUB_DISK_SECTOR_BITS)-1), len, &buffer[read]);
++       }
++
++       disk->partition = part; /* Restore the partition info */
++
++       return ret;
++}
++
++static grub_uint32_t * get_igelfs_section_offset (grub_disk_t disk, grub_off_t data_size, grub_int32_t type)
++{
++	grub_uint32_t sect;
++	grub_uint32_t first_sect;
++	grub_uint32_t i = 1;
++        static grub_uint32_t sect_kernel_offset[MAX_KERNEL_SYS_SECTIONS+1];
++        static grub_uint32_t sect_splash_offset[MAX_KERNEL_SYS_SECTIONS+1];
++        static grub_uint16_t sect_kernel_offset_valid = 0;
++        static grub_uint16_t sect_splash_offset_valid = 0;
++	grub_uint32_t *sect_offset;
++        grub_uint16_t *sect_offset_valid;
++
++        if (type == KERNEL) {
++          grub_dprintf ("igelfs", "kernel: grub_section_offset start\n");
++          sect_offset = (grub_uint32_t *) sect_kernel_offset;
++          if (sect_kernel_offset_valid != 0)
++            return sect_offset;
++          sect_offset_valid = (grub_uint16_t *) &sect_kernel_offset_valid;
++        } else if (type == SPLASH) {
++          grub_dprintf ("igelfs", "splash: grub_section_offset start\n");
++          sect_offset = (grub_uint32_t *) sect_splash_offset;
++          if (sect_splash_offset_valid != 0)
++            return sect_offset;
++          sect_offset_valid = (grub_uint16_t *) &sect_splash_offset_valid;
++        } else {
++          return NULL;
++        }
++
++	igelfs_disk_read (disk, 0, sizeof(struct igf_sect_hdr), &sh);
++
++	sect_offset[0]=0;
++
++        switch(sh.partition_minor) {
++                case 1:   first_sect = sys_first_section;  break;
++                case 23:  first_sect = bspl_first_section;  break;
++                case 252: first_sect = cbspl_first_section; break;
++                default:  first_sect = end_section; break;
++        }
++
++	if (first_sect == end_section)
++		return NULL;
++
++        grub_dprintf ("igelfs", "sect_hdr: magic: 0x%x crc: 0x%x partition_minor: %d sect_in_minor: %d generation: %d next: 0x%x\n", sh.magic, sh.crc, sh.partition_minor, sh.section_in_minor, sh.generation, sh.next_section - first_sect);
++
++	while((sect = sh.next_section) != end_section &&
++		   i <= (grub_uint32_t) (data_size / IGF_SECTION_SIZE) + 1 &&
++		   i <= (grub_uint32_t)  MAX_KERNEL_SYS_SECTIONS)
++	{
++		sect_offset[i] = sect - first_sect;
++		igelfs_disk_read (disk, START_OF_SECTION(sect - first_sect), sizeof(struct igf_sect_hdr), &sh);
++
++		grub_dprintf ("igelfs", "sect_hdr: magic: 0x%x crc: 0x%x partition_minor: %d sect_in_minor: %d generation: %d next: 0x%x\n", sh.magic, sh.crc, sh.partition_minor, sh.section_in_minor, sh.generation, sh.next_section - first_sect);
++
++		i++;
++	}
++
++	sect_offset[i] = end_section;
++	*sect_offset_valid = 1;
++
++        grub_dprintf ("igelfs", "grub_section_offset end\n");
++
++	return sect_offset;
++}
++
++/*
++ * Lookup a string "key=value" in the boot registry.
++ * The boot registry is the 32K region 0x0000-0x7fff in section #0
++ *
++ * Return a pointer to the string "value"
++ */
++
++static char *
++bootreg_get(const char *key, unsigned char *buffer)
++{
++	unsigned int key_length = grub_strlen(key);
++	unsigned int i, j, k;
++	const char *eof = "EOF\n";
++
++	i = 0; j = 0; k = 0;
++	while ((i < IGEL_BOOTREG_SIZE) && (j < key_length) && (k < 4))
++	{
++		if (buffer[i] != key[j++])
++			j = 0;
++		if (buffer[i++] != eof[k++])
++			k = 0;
++	}
++	if ((k >= 4) || (i >= IGEL_BOOTREG_SIZE) || (buffer[i] != '='))
++		return NULL;       /* no match */
++
++	/* Match: Return the string after the '=' until newline */
++	i++;	/* i points to the value string */
++	j = i;
++	while ((j < IGEL_BOOTREG_SIZE) && (buffer[j] != '\n'))
++		j++;
++
++	if (buffer[j] != '\n')
++		return NULL;
++
++	buffer[j] = '\0';  /* replace '\n' by a terminating '\0' */
++	return (char *) buffer + i;
++}
++
++
++static grub_err_t
++grub_igelconfig_bootreg_to_config(unsigned char *buf, unsigned char **content)
++{
++  int size_params = 0;
++  char cmdline[2049];
++  char splash[100];
++  char *val, empty[1];
++  const char *custom_splash;
++
++  empty[0]='\0';
++  splash[0]='\0';
++
++  val = bootreg_get("boot_id", buf);
++  if (val != NULL)
++    grub_snprintf(cmdline, 2048, " boot_id=%s", val);
++
++  if (grub_strncmp(val,"IGEL_UDC_TO", 11) == 0) {
++    grub_env_set ("splash_ident", "udc");
++  } else {
++    val = bootreg_get("product", buf);
++    if (val != NULL)
++      grub_env_set ("splash_ident", val);
++    else
++      grub_env_set ("splash_ident", "ud");
++  }
++
++  grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " bootversion=%d", BOOTVERSION);
++
++  val = bootreg_get("noapic", buf);
++  if (val[0] == '1')
++    grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " noapic");
++
++  val = bootreg_get("nomodeset", buf);
++  if (val[0] == '1') {
++    grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " nomodeset");
++    val = bootreg_get("rotation", buf);
++    if (val[0] == '1' && val[1] == '8' && val[2] == '0')
++    	grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " fbcon=rotate:2");
++    else if (val[0] == '2' && val[1] == '7' && val[2] == '0')
++    	grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " fbcon=rotate:3");
++    else if (val[0] == '9' && val[1] == '0')
++    	grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " fbcon=rotate:1");
++  }
++  val = bootreg_get("use_gma500", buf);
++  if (val[0] == '1')
++    grub_snprintf(&cmdline[grub_strlen(cmdline)], 2048 - grub_strlen(cmdline), " igel_use_gma500");
++
++  val = bootreg_get("splash", buf);
++  if (val[0] == '1')
++    grub_snprintf(splash, 100, "splash=277");
++
++  custom_splash = grub_env_get ("custom_splash");
++  if (custom_splash[0] == 't' && custom_splash[1] == 'r' && custom_splash[2] == 'u' && custom_splash[3] == 'e')
++    grub_snprintf(&splash[grub_strlen(splash)], 100 - grub_strlen(splash), " custom_splash=true");
++
++  val = bootreg_get("boot_cmd", buf);
++  if (val == NULL) {
++    val = empty;
++  }
++
++  size_params = grub_strlen(cmdline) + grub_strlen(val) + 2;
++
++  *content = (unsigned char *) grub_zalloc (1600 + (5 * size_params));
++  if (!content) {
++    return 1;
++  }
++
++  grub_snprintf((char *) *content, 1600 + (5 * size_params), "set timeout=1\n\
++set timeout_style=hidden\n\
++set default=0\n\
++\n\
++insmod regexp\n\
++\n\
++regexp --set=0:dev '(\\(hd[0-9]{1,},)' $cmdpath\n\
++set device=\"${dev}igel1)\"\n\
++set igel_part_check=false\n\
++\n\
++menuentry \"Quiet boot\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	linux	$device/vmlinuz igel_syslog=quiet quiet %s %s\n\
++}\n\
++\n\
++menuentry \"Verbose boot\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	linux	$device/vmlinuz systemd.unit=igel-verbose-boot.target igel_syslog=verbose %s\n\
++}\n\
++\n\
++menuentry \"VESA only boot\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	linux	$device/vmlinuz nomodeset igel_syslog=quiet %s %s\n\
++}\n\
++\n\
++menuentry \"Emergency boot (setup only)\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	linux	$device/vmlinuz systemd.unit=igel-emergency-boot.target igel_syslog=emergency quiet %s %s\n\
++}\n\
++\n\
++menuentry \"Failsafe boot with CRC check\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	set igel_part_check=true\n\
++	linux	$device/vmlinuz igel_syslog=quiet failsafe %s\n\
++}\n\
++\n\
++menuentry \"Reset to factory defaults\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	linux	$device/vmlinuz systemd.unit=igel-reset-to-factory-defaults.target igel_syslog=resetdefaults quiet %s %s\n\
++}\n\
++\n\
++menuentry \"Custom boot command\" {\n\
++	set gfxpayload=keep\n\
++	insmod part_igel\n\
++	linux	$device/vmlinuz igel_syslog=quiet quiet %s %s %s\n\
++}\n", cmdline, splash, cmdline, cmdline, splash, cmdline, splash, cmdline, cmdline, splash, cmdline, splash, val);
++
++  return 0;
++}
++
++struct grub_igelfs_data
++{
++  grub_uint64_t offset_kernel;
++  grub_uint64_t offset_ramdisk;
++  grub_uint64_t offset_blocks;
++  grub_uint64_t offset_splash;
++  grub_off_t size_kernel;
++  grub_off_t size_ramdisk;
++  grub_uint8_t end;
++  unsigned char *content;
++  grub_int32_t type;
++};
++
++struct grub_archelp_data
++{
++  grub_disk_t disk;
++  grub_off_t size;
++  grub_off_t dofs;
++  struct grub_igelfs_data *igelfs;
++};
++
++static grub_err_t
++grub_igelfs_find_file (struct grub_archelp_data *data, char **name,
++		     grub_int32_t *mtime,
++		     grub_uint32_t *mode)
++{
++  grub_dprintf ("igelfs", "grub_igelfs_find_file called\n");
++
++  *mode = GRUB_ARCHELP_ATTR_END;
++
++  if (data == NULL || data->igelfs == NULL)
++    return GRUB_ERR_NONE;
++
++  if (data->igelfs->type == KERNEL) {
++    if (data->igelfs->end == 1 && (data->igelfs->offset_ramdisk == 0 
++    || data->igelfs->offset_ramdisk == data->igelfs->offset_blocks 
++    || data->igelfs->offset_ramdisk == data->igelfs->offset_kernel) ) {
++      return GRUB_ERR_NONE;
++    } else if (data->igelfs->end >= 2) {
++      return GRUB_ERR_NONE;
++    }
++ 
++    if (data->igelfs->end == 1) {
++      *name = grub_strdup("initramfs.img");
++      data->dofs = data->igelfs->offset_ramdisk;
++      data->size = data->igelfs->size_ramdisk;
++    } else {
++      *name = grub_strdup("vmlinuz");
++      data->dofs = data->igelfs->offset_kernel;
++      data->size = data->igelfs->size_kernel;
++    }
++ 
++
++  } else if  (data->igelfs->type == SPLASH || data->igelfs->type == CONFIG) {
++    if (data->igelfs->end) {
++      return GRUB_ERR_NONE;
++    }
++
++    if  (data->igelfs->type == SPLASH) {
++      *name = grub_strdup("splash.png");
++    } else {
++      *name = grub_strdup("igel.conf");
++    }
++  }
++  (void) mtime;
++ 
++  if (mode)
++    *mode = GRUB_ARCHELP_ATTR_FILE | GRUB_ARCHELP_ATTR_NOTIME;
++ 
++  data->igelfs->end = data->igelfs->end + 1;
++
++  return GRUB_ERR_NONE;
++}
++
++static void
++grub_igelfs_rewind (struct grub_archelp_data *data)
++{
++  grub_dprintf ("igelfs", "grub_igelfs_rewind called\n");
++  data->igelfs->end = 0;
++}
++
++static struct grub_archelp_ops igelops =
++{
++  .find_file = grub_igelfs_find_file,
++  .rewind = grub_igelfs_rewind
++};
++
++static struct grub_archelp_data *
++grub_igelfs_mount (grub_disk_t disk)
++{
++  struct igf_sect_hdr sect_hdr;
++  struct igf_part_hdr part_hdr;
++  struct grub_archelp_data *data = NULL;
++  struct igf_partition_extent *extent = NULL;
++  struct igel_bootsplash_hdr splash_hdr;
++  struct igel_splash *splash_extent = NULL;
++  const char *splash_ident;
++  grub_uint8_t buf[9];
++  grub_uint8_t ext, sp_ext, i = 0;
++  grub_uint64_t offset_kernel, offset_ramdisk;
++  grub_uint64_t size_kernel = 0, size_ramdisk = 0;
++  unsigned char *bootreg_buf = NULL;
++  grub_int32_t type = NONE;
++
++  grub_dprintf ("igelfs", "grub_igelfs_mount was called\n");
++
++  /* check for msdos and gpt partitions only */
++
++  if (disk == NULL || disk->partition == NULL || disk->partition->partmap == NULL)
++    goto fail;
++
++  if (! grub_strcmp (disk->partition->partmap->name, "msdos")
++  || ! grub_strcmp (disk->partition->partmap->name, "gpt")) {
++    grub_dprintf ("igelfs", "search for igelconfig partition\n");
++
++    bootreg_buf = (unsigned char *) grub_zalloc(IGEL_BOOTREG_SIZE);
++    if (! bootreg_buf)
++      goto fail;
++
++    if (igelfs_disk_read (disk, IGEL_BOOTREG_OFFSET, IGEL_BOOTREG_SIZE, bootreg_buf)) {
++      goto fail;
++    }
++ 
++    if (grub_strncmp ((char *) bootreg_buf, "IGEL BOOTREGISTRY", 17) != 0) {
++      goto fail;
++    }
++ 
++    data = (struct grub_archelp_data *) grub_zalloc (sizeof (struct grub_archelp_data));
++    if (!data) {
++      goto fail;
++    }
++    
++    data->igelfs = (struct grub_igelfs_data *) grub_zalloc (sizeof (struct grub_igelfs_data));
++    if (!data->igelfs) {
++      goto fail;
++    }
++ 
++    if (grub_igelconfig_bootreg_to_config(bootreg_buf, &data->igelfs->content) != 0) {
++      goto fail;
++    }
++
++    grub_free(bootreg_buf);
++
++    data->size = grub_strlen((char *) data->igelfs->content);
++
++    data->igelfs->end = 0;
++
++    data->igelfs->type = CONFIG;
++
++    return data;
++  }
++
++  /* check for igel partitions only */
++
++  if (grub_strcmp (disk->partition->partmap->name, "igel"))
++    goto fail;
++
++  grub_dprintf ("igelfs", "search for igel splash/kernel partition\n");
++
++  /* kernel is only present in partition number 0 */
++
++  if (disk->partition->number == 0) {
++    type = KERNEL;
++  /* splash is only present in partition number 22 (igf23) or number 251 (igf252) */
++  } else if (disk->partition->number == 22 || disk->partition->number == 251 ) {
++    type = SPLASH;
++  } else {
++    goto fail;
++  }
++
++  /* read section header and check if partition number match */
++
++  if (igelfs_disk_read (disk, 0, sizeof (sect_hdr), &sect_hdr))
++    goto fail;
++
++  if (sect_hdr.partition_minor != (grub_uint32_t)disk->partition->number + 1)
++    goto fail;
++
++  if (igelfs_disk_read (disk, IGF_SECT_HDR_LEN, sizeof (part_hdr), &part_hdr))
++    goto fail;
++
++  /* if there are no extents then there is also no kernel extent */
++
++  if (part_hdr.n_extents < 1)
++    goto fail;
++
++  /* allocate extent struct an read it from disk */
++
++  extent = (struct igf_partition_extent *) grub_zalloc (part_hdr.n_extents * sizeof (struct igf_partition_extent));
++  if (!extent)
++    goto fail;
++
++  if (igelfs_disk_read (disk, IGF_SECT_HDR_LEN + sizeof (part_hdr), part_hdr.n_extents * sizeof (struct igf_partition_extent), extent))
++    goto fail;
++
++  if (type == SPLASH) {
++    /* check for extent type splash */
++
++    for (ext=0;ext<part_hdr.n_extents;ext++) {
++      if (extent[ext].type == EXTENT_TYPE_SPLASH)
++        break;
++    }
++
++    /* no splash extent found */
++    if (ext == part_hdr.n_extents)
++      goto fail;
++
++    /* no splash partition if offset_extent == offset_blocktable */
++    if (extent[ext].offset == part_hdr.offset_blocktable)
++      goto fail;
++
++    if (igelfs_disk_read(disk, extent[ext].offset + IGF_SECT_HDR_LEN, sizeof(struct igel_bootsplash_hdr), &splash_hdr))
++      goto fail;
++  } else if (type == KERNEL) {
++    offset_kernel = 0;
++    offset_ramdisk = 0;
++
++    /* no kernel partition if offset_kernel == offset_blocktable */
++
++    for (ext=0;ext<part_hdr.n_extents;ext++) {
++      if (extent[ext].type == EXTENT_TYPE_KERNEL) {
++        if (extent[ext].offset != part_hdr.offset_blocktable) {
++          offset_kernel = extent[ext].offset;
++          size_kernel = extent[ext].length;
++        }
++      } else if (extent[ext].type == EXTENT_TYPE_RAMDISK) {
++        if (extent[ext].offset != part_hdr.offset_blocktable) {
++          offset_ramdisk = extent[ext].offset;
++          size_ramdisk = extent[ext].length;
++        }
++      }
++    }
++
++    if (offset_kernel == 0)
++      goto fail;
++  }
++
++  data = (struct grub_archelp_data *) grub_zalloc (sizeof (*data));
++  if (!data)
++    goto fail;
++
++  data->igelfs = (struct grub_igelfs_data *) grub_zalloc (sizeof (struct grub_igelfs_data));
++  if (!data->igelfs) {
++    goto fail;
++  }
++
++  data->disk = disk;
++  data->igelfs->offset_blocks = part_hdr.offset_blocktable;
++  data->igelfs->end = 0;
++  data->igelfs->type = type;
++  data->igelfs->content = NULL;
++
++  if (type == KERNEL) {
++    data->igelfs->offset_kernel = offset_kernel;
++    data->igelfs->offset_ramdisk = offset_ramdisk;
++    data->igelfs->size_kernel = size_kernel;
++    data->igelfs->size_ramdisk = size_kernel;
++
++    return data;
++  } else if (type == SPLASH) {
++    data->igelfs->offset_splash = extent[ext].offset;
++    data->size = extent[ext].length;
++    data->dofs = extent[ext].offset;
++
++    /* check if there is a PNG header, if so the splash was found */
++ 
++    if (splash_hdr.magic[0] == 0x89 && splash_hdr.magic[1] == 0x50 
++        && splash_hdr.magic[2] == 0x4E && splash_hdr.magic[3] == 0x47
++        && splash_hdr.magic[4] == 0xD && splash_hdr.magic[5] == 0xA 
++        && splash_hdr.magic[6] == 0x1A && splash_hdr.magic[7] == 0xA) {
++      grub_dprintf ("igelfs", "splash size is (%llu)\n", (unsigned long long) data->size);
++      return data;
++    }
++
++    /* check if the BOOTSPLASH_MAGIC is present and if the splash count is greater
++     * then 0 if not fail */
++ 
++    if (grub_strncmp ((const char *)splash_hdr.magic, BOOTSPLASH_MAGIC, sizeof(splash_hdr.magic))
++        || splash_hdr.num_splashs == 0)
++      goto fail;
++ 
++    /* read splash "extents" */
++ 
++    splash_extent = (struct igel_splash *) grub_zalloc (splash_hdr.num_splashs * sizeof (struct igel_splash));
++    if (!splash_extent)
++      goto fail;
++ 
++    if (igelfs_disk_read(disk, extent[ext].offset + IGF_SECT_HDR_LEN + sizeof(struct igel_bootsplash_hdr), splash_hdr.num_splashs * sizeof(struct igel_splash), splash_extent))
++      goto fail;
++ 
++    /* try to get splash from splash_ident env variable (set by igelfs config part) */
++ 
++    splash_ident = grub_env_get("splash_ident");
++    sp_ext = 0xff;
++    if (splash_ident) {
++      for (i = 0; i < splash_hdr.num_splashs; i++) {
++        if (grub_strncmp(splash_ident, (const char *)splash_extent[i].ident, 8) == 0) {
++          sp_ext = i;
++          break;
++        }
++      }
++    }
++ 
++    /* if not splash was choosen, try variant ud */
++ 
++    if (sp_ext == 0xff) {
++      for (i = 0; i < splash_hdr.num_splashs; i++) {
++        if (grub_strncmp((const char *)splash_extent[i].ident, "ud", 8) == 0) {
++          sp_ext = i;
++          break;
++        }
++      }
++    }
++ 
++    /* if all fails, try first splash present */
++ 
++    if (sp_ext == 0xff || sp_ext > splash_hdr.num_splashs) {
++      sp_ext = 0;
++    }
++ 
++    if (igelfs_disk_read(disk, extent[ext].offset + splash_extent[sp_ext].offset + IGF_SECT_HDR_LEN, 8, &buf))
++      goto fail;
++    
++    /* check PNG header */
++ 
++    if (buf[0] != 0x89 || buf[1] != 0x50 
++        || buf[2] != 0x4E || buf[3] != 0x47
++        || buf[4] != 0xD || buf[5] != 0xA 
++        || buf[6] != 0x1A || buf[7] != 0xA)
++      goto fail;
++
++    if ( splash_extent[sp_ext].length > extent[ext].length ) {
++      grub_dprintf ("igelfs", "splash_extent[sp_ext].length (%llu) > extent[ext].length (%llu) so limit size\n", (unsigned long long) splash_extent[sp_ext].length, (unsigned long long) extent[ext].length);
++      data->size = extent[ext].length;
++    } else {
++      data->size = splash_extent[sp_ext].length;
++    }
++    grub_dprintf ("igelfs", "splash size is (%llu)\n", (unsigned long long) data->size);
++
++    data->dofs = extent[ext].offset + splash_extent[sp_ext].offset;
++ 
++    return data;
++  }
++
++
++fail:
++  if (extent != NULL) {
++    grub_free(extent);
++    extent = NULL;
++  }
++  if (bootreg_buf != NULL) {
++    grub_free(bootreg_buf);
++    bootreg_buf = NULL;
++  }
++  if (data) {
++    if (data->igelfs) {
++      if (data->igelfs->content) {
++        grub_free(data->igelfs->content);
++        data->igelfs->content = NULL;
++      }
++      grub_free(data->igelfs);
++      data->igelfs = NULL;
++    }
++    grub_free(data);
++    data = NULL;
++  }
++  grub_error (GRUB_ERR_BAD_FS, "not a IGEL kernel, splash or config partition");
++  return NULL;
++}
++
++static grub_err_t
++grub_igelfs_dir (grub_device_t device, const char *path_in,
++	       grub_fs_dir_hook_t hook, void *hook_data)
++{
++  struct grub_archelp_data *data;
++  grub_err_t err;
++
++  grub_dprintf ("igelfs", "grub_igelfs_dir was called\n");
++
++  data = grub_igelfs_mount (device->disk);
++  if (!data)
++    return grub_errno;
++
++  grub_dprintf ("igelfs", "grub_igelfs_dir was called further\n");
++
++  err = grub_archelp_dir (data, &igelops,
++			  path_in, hook, hook_data);
++  if (data) {
++    if (data->igelfs) {
++      if (data->igelfs->content) {
++        grub_free(data->igelfs->content);
++        data->igelfs->content = NULL;
++      }
++      grub_free(data->igelfs);
++      data->igelfs = NULL;
++    }
++    grub_free (data);
++    data = NULL;
++  }
++
++  return err;
++}
++
++static grub_err_t
++grub_igelfs_open (grub_file_t file, const char *name_in)
++{
++  struct grub_archelp_data *data;
++  grub_err_t err;
++
++  grub_dprintf ("igelfs", "grub_igelfs_open was called\n");
++
++  grub_dprintf ("igelfs", "grub_igelfs_mount (file->device->disk);\n");
++  data = grub_igelfs_mount (file->device->disk);
++  if (!data)
++    return grub_errno;
++
++  grub_dprintf ("igelfs", "grub_archelp_open (data, &igelops, name_in);\n");
++  err = grub_archelp_open (data, &igelops, name_in);
++  if (err)
++  {
++    if (data) {
++      if (data->igelfs) {
++        if (data->igelfs->content) {
++          grub_free(data->igelfs->content);
++          data->igelfs->content = NULL;
++        }
++        grub_free(data->igelfs);
++        data->igelfs = NULL;
++      }
++      grub_free (data);
++      data = NULL;
++    }
++  }
++  else
++  {
++    file->data = data;
++    file->size = data->size;
++  }
++
++  return err;
++}
++
++static grub_ssize_t
++grub_igelfs_read (grub_file_t file, char *buf, grub_size_t len)
++{
++  struct grub_archelp_data *data;
++  grub_ssize_t ret;
++  grub_ssize_t read = 0;
++  grub_size_t length;
++#ifdef __x86_64__
++  grub_uint64_t offset;
++  grub_uint64_t foffset;
++#else
++  grub_uint32_t offset;
++  grub_uint32_t foffset;
++#endif
++  grub_uint32_t sect;
++  grub_uint32_t *sect_offset;
++
++  grub_dprintf ("igelfs", "grub_igelfs_read (file, *buf, len = 0x%llx)\n", (unsigned long long) len);
++  data = file->data;
++
++  // if one tries to read data autoside of usable area
++
++  if (file->offset + len > data->size) {
++    return -1;
++  }
++
++  // config case is a really simple one
++
++  if (data->igelfs->type == CONFIG) {
++    grub_memcpy (buf, &data->igelfs->content[file->offset], len);
++    return len;
++  }
++
++  data->disk->read_hook = file->read_hook;
++  data->disk->read_hook_data = file->read_hook_data;
++
++  // set file read offset
++
++  foffset = (data->dofs + file->offset);
++
++  grub_dprintf ("igelfs", "grub_igelfs_read foffset 0x%llx)\n", (unsigned long long) foffset);
++
++  // check if file offset is beyond MAX_KERNEL_SYS_SECTIONS area
++
++  if (foffset / IGF_SECT_DATA_LEN >= MAX_KERNEL_SYS_SECTIONS - 1)
++    return -1;
++
++  // get offset array
++
++  sect_offset = get_igelfs_section_offset (data->disk, data->size, data->igelfs->type);
++
++  if (sect_offset == NULL)
++    return -1;
++
++  // find begin section to use
++
++  sect = foffset / IGF_SECT_DATA_LEN;
++
++  // calculate real disk/partition offset
++
++  offset = foffset % IGF_SECT_DATA_LEN + START_OF_SECTION(sect_offset[sect]);
++  // adjust read length if len is bigger then the available data in current section
++
++  if (len > (IGF_SECT_DATA_LEN - foffset % IGF_SECT_DATA_LEN)) {
++    length = (IGF_SECT_DATA_LEN - foffset % IGF_SECT_DATA_LEN);
++    grub_dprintf ("igelfs", "grub_igelfs_read foffset len > sect size -> len = 0x%llx length = 0x%llx)\n", (unsigned long long) len, (unsigned long long) length);
++  } else {
++    length = len;
++    grub_dprintf ("igelfs", "grub_igelfs_read foffset len <= sect size -> len = 0x%llx length = 0x%llx)\n", (unsigned long long) len, (unsigned long long) length);
++  }
++
++  while (read < (grub_ssize_t) len) {
++    grub_dprintf ("igelfs", "igelfs_disk_read(data->disk, offset + IGF_SECT_HDR_LEN 0x%llx, length, &buf[read(%lld)])\n", (long long)offset + IGF_SECT_HDR_LEN, (long long)read);
++
++    ret = (igelfs_disk_read(data->disk, offset + IGF_SECT_HDR_LEN, length, &buf[read])) ? -1 : (grub_ssize_t) length;
++
++    grub_dprintf ("igelfs", "ret = %lld\n", (long long) ret);
++    if (ret == -1)
++      return read;
++
++    read += ret;
++
++    if (read < (grub_ssize_t) len) {
++      sect++;
++      if (sect_offset[sect] != end_section) {
++        offset = START_OF_SECTION(sect_offset[sect]);
++      } else
++        break;
++
++      length = len - read;
++      if (length > IGF_SECT_DATA_LEN)
++        length = IGF_SECT_DATA_LEN;
++    }
++  }
++
++  data->disk->read_hook = 0;
++
++  return read;
++}
++
++static grub_err_t
++grub_igelfs_close (grub_file_t file)
++{
++  struct grub_archelp_data *data;
++
++  grub_dprintf ("igelfs", "grub_igelfs_close was called\n");
++
++  data = file->data;
++  if (data) {
++    if (data->igelfs) {
++      if (data->igelfs->content) {
++        grub_free(data->igelfs->content);
++      }
++      grub_free(data->igelfs);
++    }
++    grub_free (data);
++    data = NULL;
++  }
++
++  return grub_errno;
++}
++
++static struct grub_fs grub_igel_fs = {
++  .name = "igelfs",
++  .dir = grub_igelfs_dir,
++  .open = grub_igelfs_open,
++  .read = grub_igelfs_read,
++  .close = grub_igelfs_close,
++#ifdef GRUB_UTIL
++  .reserved_first_sector = 0,
++  .blocklist_install = 0,
++#endif
++};
++
++GRUB_MOD_INIT (igelfs)
++{
++  grub_fs_register (&grub_igel_fs);
++}
++
++GRUB_MOD_FINI (igelfs)
++{
++  grub_fs_unregister (&grub_igel_fs);
++}
+diff -Naurp grub2_2.02~beta3-4.ori/grub-core/partmap/directory.c grub2_2.02~beta3-4/grub-core/partmap/directory.c
+--- grub2_2.02~beta3-4.ori/grub-core/partmap/directory.c	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/grub-core/partmap/directory.c	2016-09-15 10:32:28.579738483 +0200
+@@ -0,0 +1,1090 @@
++/*
++ *  IGELFS Partition Directory V6
++ *
++ *  Basically the headers of IGEL partitions and IGEL sections contain
++ *  all the information necessary for accessing their payload data.
++ *  Before accessing this data, it is necessary to read in all section
++ *  headers in order to determine the sequences of sections the partitions
++ *  are made of.
++ *  However, the old design was made with moderate storage media sizes
++ *  in mind. (4 MB to 16 MB) Today's storage media sizes (as of 2016)
++ *  are in the range 2GB and above. Since the initialization effort
++ *  grows linearly with flash size, it is unacceptable to scan all
++ *  section headers.
++ *
++ *  The "partition directory" is a supplemental data set which makes the
++ *  access of IGEL partition data faster, just like directories/FATs work
++ *  in filesystems. For each partition it maintains a section list
++ *  in compact representation. It draws benefits from the fact, that
++ *  the sequences of sections are almost contiguous. In other words,
++ *  there usually is very little fragmentation.
++ *
++ *  This code is both used for igelfs_tools, for the kernel driver module
++ *  and for the bootcode. The only functions needed for the bootcode are
++ *  get_physical_section() and read_directory().
++ *
++ *  Copyright (C) 2007-2016, IGEL Technology GmbH, Thomas Kraetzig
++ */
++
++#ifdef GRUB_FILE
++#include <grub/igel_partition.h>
++#endif
++
++#ifndef __KERNEL__
++#ifndef GRUB2_BOOTCODE
++#include <stdio.h>
++#include <string.h>
++#include <strings.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include <sys/types.h>
++#include <unistd.h>
++#include <igel.h>
++#endif /* GRUB2_BOOTCODE */
++#else /* __KERNEL__ */
++#include <linux/kernel.h>
++#include <linux/sched.h>
++#include <linux/fs.h>
++#include <linux/file.h>
++#include "igel.h"
++#endif /* __KERNEL__ */
++
++#ifndef __KERNEL__
++#ifndef GRUB2_BOOTCODE
++/* functions from igel_crc.c */
++extern uint32_t updcrc(unsigned char * s, unsigned n);
++extern void makecrc(void);
++#endif /* GRUB2_BOOTCODE */
++#else /* __KERNEL__ */
++#undef TEST
++#endif /* __KERNEL__ */
++
++/*----------------------------------------------------------------------
++ *  Local data
++ */
++
++#ifdef TEST
++/*
++ * We use two memory buffers for directories.
++ * This makes modifications easy: While the original version of a directory
++ * is beeing kept unchanged, the modified version can be created "from scratch"
++ * by copying elements from the original version and by doing the required
++ * modifications on the fly.
++ */
++static struct directory dir1, dir2;
++
++/*
++ * An intermediate fragment list
++ */
++static struct fragment_descriptor new_fragments[16];
++#endif
++
++
++#ifndef GRUB2_BOOTCODE
++/*----------------------------------------------------------------------
++ *  Functions operating on fragment lists
++ *  require, that all fragment lists are in ascending order, i.e
++ *
++ *  for all i,j:
++ *  i < j  implies  fragment[i].first_section < fragment[j].first_section
++ *
++ *  and fragments must not overlap.
++ */
++
++/*
++ *  Create a fragment list from a section list.
++ *  Return value is the number of fragments.
++ */
++int sections_to_fragments(uint32_t *sections, int n_sections,
++                          struct fragment_descriptor *fragments,
++                          int max_fragments)
++{
++    int i, j, current_section;
++
++    if (n_sections <= 0)
++        return 0;
++    if (max_fragments <= 0)
++    {
++#ifndef __KERNEL__
++	fprintf(stderr, "sections_to_fragments: too many fragments\n");
++#else
++	printk(KERN_ERR "sections_to_fragments: too many fragments\n");
++#endif
++	return 0;
++    }
++
++    fragments[0].first_section = current_section = sections[0];
++    fragments[0].length = 1;
++
++    for (i = 1, j = 0; i<n_sections; i++)
++    {
++        if (sections[i] == current_section + 1)
++        {
++            /* section belongs to the current fragment */
++            current_section++;
++            fragments[j].length++;
++        }
++        else
++        {
++            /* new fragment */
++            j++;
++            if (j >= max_fragments)
++            {
++#ifndef __KERNEL__
++                fprintf(stderr, "sections_to_fragments: too many fragments\n");
++#else
++                printk(KERN_ERR "sections_to_fragments: too many fragments\n");
++#endif
++                return 0;
++            }
++            fragments[j].first_section = current_section = sections[i];
++            fragments[j].length = 1;
++        }
++    }
++    return j + 1;
++}
++
++
++/*
++ *  Merge two sequences of fragments.
++ *  Overlapping fragments are handled correctly, although this
++ *  will never happen in reasonable fragment sets.
++ *
++ *  This function is needed for adding sections to the freelist.
++ *
++ *  Return value is the number of fragments in the merged sequence.
++ */
++int merge_fragments(struct fragment_descriptor *fragments1, int n1,
++                    struct fragment_descriptor *fragments2, int n2,
++                    struct fragment_descriptor *merged_fragments)
++{
++    int i, j, k, l1, l2, r1, r2;
++    int merged_l, merged_r;
++
++    if ((n1 == 0) && (n2 == 0))
++        return 0;
++
++    l1 = l2 = r1 = r2 = 0;   /* stop compiler warnings */
++    i = j = k = 0;
++    merged_l = merged_r = -1; /* we start with an invalid fragment */
++    if (n1 > 0)
++    {
++        l1 = fragments1[0].first_section;
++        r1 = l1 + fragments1[0].length;
++    }
++    if (n2 > 0)
++    {
++        l2 = fragments2[0].first_section;
++        r2 = l2 + fragments2[0].length;
++    }
++
++    while ((i < n1) || (j < n2))
++    {
++        if (((l1 <= l2) && (i < n1)) || (j >= n2))
++        {
++            /*
++             * l1 is the next number in the merged ordered list because
++             * l1 is smaller than l2 or because the second list is exhausted.
++             */
++            if (l1 > merged_r)
++            {
++                /* the new fragment is not coherent with the stored fragment:
++                   write out the stored fragment */
++                if (merged_l >= 0)
++                {
++                    merged_fragments[k].first_section = merged_l;
++                    merged_fragments[k].length = merged_r - merged_l;
++                    k++;
++                }
++                /* set up a new stored fragment */
++                merged_l = l1;
++                merged_r = r1;
++            }
++            else
++            {
++                /* the new fragment is coherent/overlaps/is part of the
++                   stored fragment: merge with the stored fragment */
++                if (r1 > merged_r)
++                    merged_r = r1;
++            }
++            /* advance one step in the first fragment list */
++            i++;
++            if (i < n1)
++            {
++                l1 = fragments1[i].first_section;
++                r1 = l1 + fragments1[i].length;
++            }
++        }
++        else if (((l2 < l1) && (j < n2)) || (i >= n1))
++        {
++            /*
++             * l2 is the next number in the merged ordered list because
++             * l2 is smaller than l1 or because the first list is exhausted.
++             */
++            /* l2 is the next number in the merged ordered list */
++            if (l2 > merged_r)
++            {
++                /* the new fragment is not coherent with the stored fragment:
++                   write out the stored fragment */
++                if (merged_l >= 0)
++                {
++                    merged_fragments[k].first_section = merged_l;
++                    merged_fragments[k].length = merged_r - merged_l;
++                    k++;
++                }
++                /* set up a new stored fragment */
++                merged_l = l2;
++                merged_r = r2;
++            }
++            else
++            {
++                /* the new fragment is coherent/overlaps/is part of the
++                   stored fragment: merge with the stored fragment */
++                if (r2 > merged_r)
++                    merged_r = r2;
++            }
++            /* advance one step in the second fragment list */
++            j++;
++            if (j < n2)
++            {
++                l2 = fragments2[j].first_section;
++                r2 = l2 + fragments2[j].length;
++            }
++        }
++    }
++    /* write out the last stored segment */
++    merged_fragments[k].first_section = merged_l;
++    merged_fragments[k].length = merged_r - merged_l;
++    k++;
++
++    return k;
++}
++
++
++/*
++ *  Take away fragments2 from fragments1.
++ *  This function is needed for removing sections from the freelist.
++ *
++ *  Return value is the number of fragments in the reduced sequence.
++ */
++int take_away_fragments(struct fragment_descriptor *fragments1, int n1,
++                    struct fragment_descriptor *fragments2, int n2,
++                    struct fragment_descriptor *result_fragments)
++{
++    int i, j, k, l2, r2;
++    int reduced_l, reduced_r;
++
++    if (n1 == 0)
++        return 0;
++    if (n2 == 0)
++    {
++        /* nothing to reduce, copy the original fragment list */
++        for (i=0; i<n1; i++)
++            result_fragments[i] = fragments1[i];
++        return n1;
++    }
++
++    i = j = k = 0;
++
++    reduced_l = fragments1[0].first_section;
++    reduced_r = reduced_l + fragments1[0].length;
++
++    while ((i < n1) && (j < n2))
++    {
++        l2 = fragments2[j].first_section;
++        r2 = l2 + fragments2[j].length;
++        
++        if (r2 <= reduced_l)
++        {
++            /* [l2;r2) is too far left: no intersection */
++            j++;
++            continue;
++        }
++        else if ((l2 <= reduced_l) && (r2 >= reduced_r))
++        {
++            /* [reduced_l;reduced_r) is deleted completely */
++            i++;
++            if (i < n1)
++            {
++                reduced_l = fragments1[i].first_section;
++                reduced_r = reduced_l + fragments1[i].length;
++            }
++            else
++                reduced_l = reduced_r = -1; /* nothing left */
++            continue;
++        }
++        else if ((l2 <= reduced_l) && (r2 < reduced_r))
++        {
++            /* cut left */
++            reduced_l = r2;
++            j++;
++            continue;
++        }
++        else if ((l2 > reduced_l) && (r2 < reduced_r))
++        {
++            /* cut out a piece in the middle, output lefthand piece */
++            result_fragments[k].first_section = reduced_l;
++            result_fragments[k].length = l2 - reduced_l;
++            k++;
++            reduced_l = r2;
++            j++;
++            continue;           
++        }
++        else if ((l2 < reduced_r) && (r2 >= reduced_r))
++        {
++            /* cut right, output lefthand piece */
++            result_fragments[k].first_section = reduced_l;
++            result_fragments[k].length = l2 - reduced_l;
++            k++;
++            i++;
++            if (i < n1)
++            {
++                reduced_l = fragments1[i].first_section;
++                reduced_r = reduced_l + fragments1[i].length;
++            }
++            else
++                reduced_l = reduced_r = -1; /* nothing left */
++            continue;
++        }
++        else if (l2 >= reduced_r)
++        {
++            /* [l2;r2) is too far right: no intersection, output */
++            result_fragments[k].first_section = reduced_l;
++            result_fragments[k].length = reduced_r - reduced_l;
++            k++;
++            i++;
++            if (i < n1)
++            {
++                reduced_l = fragments1[i].first_section;
++                reduced_r = reduced_l + fragments1[i].length;
++            }
++            else
++                reduced_l = reduced_r = -1; /* nothing left */
++            continue;
++        }
++    }
++    /*
++     * At this point, there is either nothing left to reduce
++     * i.e list1 is exhausted (i == n1, reduced_l = -1),
++     * or there is nothing left to take away, i.e list2 is exhausted,
++     * or both.
++     */
++    if (reduced_l >= 0)
++    {
++        /* output the remaining fragments from list1 */
++        result_fragments[k].first_section = reduced_l;
++        result_fragments[k].length = reduced_r - reduced_l;
++        k++;
++        i++;
++        while (i < n1)
++        {
++            result_fragments[k].first_section = fragments1[i].first_section;
++            result_fragments[k].length = fragments1[i].length;
++            i++;
++            k++;
++        }
++    }
++    return k;
++}
++
++
++/*----------------------------------------------------------------------
++ *  Functions operating on directories
++ */
++
++/*
++ *  Initialize a directory to an empty state. Partition 0, the freelist,
++ *  is initialized as one contiguous fragment with n_sections sections.
++ */
++void *create_empty_directory(struct directory *dir, int n_sections)
++{
++    int i;
++
++#ifdef __KERNEL__
++    memset(dir, 0, sizeof(struct directory));
++#else
++    bzero(dir, sizeof(struct directory));
++#endif
++    dir->magic = DIRECTORY_MAGIC;
++    dir->crc = CRC_DUMMY;
++    dir->dir_type = 0;		/* for future extensions */
++    dir->max_minors = DIR_MAX_MINORS;
++    dir->version = 1;		/* update count, never used so far */
++    dir->dummy = 0;
++    dir->n_fragments = 1;	/* the freelist has exactly one fragment */
++    dir->max_fragments = MAX_FRAGMENTS;
++    for (i = 0; i < 8; i++)
++	dir->extension[i] = 0;
++
++    /* Initialize the freelist */
++    dir->partition[0].minor = 0;
++    dir->partition[0].type = PTYPE_IGEL_FREELIST;
++    dir->partition[0].first_fragment = 0;
++    dir->partition[0].n_fragments = 1;
++    dir->fragment[0].first_section = 1; /* section 0 is reserved for boot */
++    dir->fragment[0].length = n_sections - 1;
++
++    /*
++     * Note: There is no need to initialize an empty partition table
++     * since the whole directory structure is zeroed. This implies
++     * dir->partition_descriptor[i].type = PTYPE_EMPTY
++     * for all i > 0
++     */
++
++    /* TODO: dir->crc = ... (can be postponed to writing) */
++
++    return dir;
++}
++
++
++/*
++ *  Delete partition number "minor" from directory "src_dir" to "dst_dir"
++ */
++void igeldir_delete_partition(struct directory *src_dir, struct directory *dst_dir,
++                      int minor)
++{
++    int n_frag_this;
++    int n_frag_free_old, n_frag_free_new, src_frag, dst_frag;
++    int i, j, n;
++
++    if ((minor < 0) || (minor >= IGF_MAX_MINORS))
++    {
++        /* invalid minor */
++        memcpy(dst_dir, src_dir, sizeof(struct directory));
++        return;
++    }
++
++    if ((n_frag_this = src_dir->partition[minor].n_fragments) == 0)
++    {
++        /* partition does not exist */
++        memcpy(dst_dir, src_dir, sizeof(struct directory));
++        return;
++    }
++
++    /* initialize the new directory */
++#ifdef __KERNEL__
++    memset(dst_dir, 0, sizeof(struct directory));
++#else
++    bzero(dst_dir, sizeof(struct directory));
++#endif
++    dst_dir->magic = DIRECTORY_MAGIC;
++    dst_dir->crc = CRC_DUMMY;
++    dst_dir->dir_type = 0;		/* for future extensions */
++    dst_dir->max_minors = DIR_MAX_MINORS;
++    dst_dir->version = src_dir->version;
++    dst_dir->dummy = 0;
++    dst_dir->max_fragments = MAX_FRAGMENTS;
++    for (i = 0; i < 8; i++)
++	dst_dir->extension[i] = 0;
++
++    /* copy the partition table */
++    memcpy(dst_dir->partition, src_dir->partition,
++           DIR_MAX_MINORS * sizeof(struct partition_descriptor));
++
++    /* create a new freelist by merging the old freelist
++       with the partition to delete */
++    n_frag_free_old = src_dir->partition[0].n_fragments;
++    n_frag_free_new = merge_fragments(
++        &(src_dir->fragment[src_dir->partition[0].first_fragment]),
++        n_frag_free_old,
++        &(src_dir->fragment[src_dir->partition[minor].first_fragment]),
++        n_frag_this,
++        &(dst_dir->fragment[0]));
++
++    /* update the freelist in the new partition table */
++    /* (the freelist always starts at fragment 0)     */
++    dst_dir->partition[0].first_fragment = 0;
++    dst_dir->partition[0].n_fragments = n_frag_free_new;
++
++    /* update all other partitions and fragments */
++    dst_frag = n_frag_free_new; /* index into new fragment list */
++    for (i = 1; i < DIR_MAX_MINORS; i++)
++    {
++        if (i == minor)
++        {
++            /* delete this partition  TODO: handle hash conflicts */
++            dst_dir->partition[i].minor = 0;
++            dst_dir->partition[i].type = PTYPE_EMPTY;
++            dst_dir->partition[i].first_fragment = 0;
++            dst_dir->partition[i].n_fragments = 0;
++        }
++        else
++        {
++            /* keep this partition */
++            src_frag = src_dir->partition[i].first_fragment;
++            n = src_dir->partition[i].n_fragments;
++            dst_dir->partition[i].first_fragment = dst_frag;
++            dst_dir->partition[i].n_fragments = n;
++            for (j = 0; j < n; j++)
++                dst_dir->fragment[dst_frag++] = src_dir->fragment[src_frag++];
++        }
++    }
++    dst_dir->n_fragments = dst_frag; /* total number of fragments */
++}
++
++
++/*
++ *  Add a partition number "minor", consisting of fragments given in a
++ *  list fragments[n], to the directory "src_dir".
++ */
++void igeldir_add_partition(struct directory *src_dir,
++                   struct directory *dst_dir, int minor,
++                   struct fragment_descriptor *new_fragments, int n_frag_new)
++{
++    int i, j, n;
++    int n_frag_free_old, n_frag_free_new, src_frag, dst_frag;
++
++    if ((minor < 0) || (minor >= IGF_MAX_MINORS))
++        return; /* invalid minor */
++
++    /*  if a partition with this minor number already exists, delete it */
++    /*  CAUTION: src_dir will be modified in this case !                */
++    if ((n = src_dir->partition[minor].n_fragments) > 0)
++    {
++        igeldir_delete_partition(src_dir, dst_dir, minor);
++        memcpy(src_dir, dst_dir, sizeof(struct directory));
++    }
++
++    /* initialize the new directory */
++#ifdef __KERNEL__
++    memset(dst_dir, 0, sizeof(struct directory));
++#else
++    bzero(dst_dir, sizeof(struct directory));
++#endif
++    dst_dir->magic = DIRECTORY_MAGIC;
++    dst_dir->crc = CRC_DUMMY;
++    dst_dir->dir_type = 0;		/* for future extensions */
++    dst_dir->max_minors = DIR_MAX_MINORS;
++    dst_dir->version = src_dir->version;
++    dst_dir->dummy = 0;
++    dst_dir->max_fragments = MAX_FRAGMENTS;
++    for (i = 0; i < 8; i++)
++	dst_dir->extension[i] = 0;
++
++    /* copy the partition table */
++    memcpy(dst_dir->partition, src_dir->partition,
++           DIR_MAX_MINORS * sizeof(struct partition_descriptor));
++
++    /* create a new freelist by taking away the fragments
++       of the new partition from the old freelist */
++    n_frag_free_old = src_dir->partition[0].n_fragments;
++    n_frag_free_new = take_away_fragments(
++        &(src_dir->fragment[src_dir->partition[0].first_fragment]),
++        n_frag_free_old,
++        new_fragments, n_frag_new,
++        &(dst_dir->fragment[0]));
++
++    /* update the freelist in the new partition table */
++    /* (the freelist always starts at fragment 0)     */
++    dst_dir->partition[0].first_fragment = 0;
++    dst_dir->partition[0].n_fragments = n_frag_free_new;
++
++    /* update all other partitions and fragments */
++    dst_frag = n_frag_free_new; /* index into new fragment list */
++    for (i = 1; i < DIR_MAX_MINORS; i++)
++    {
++        if (i == minor)
++        {
++            /* add the new partition  TODO: handle hash conflicts */
++            dst_dir->partition[i].minor = minor;
++            dst_dir->partition[i].type = PTYPE_IGEL_COMPRESSED;	/* TODO: function argument ? */
++            dst_dir->partition[i].first_fragment = dst_frag;
++            dst_dir->partition[i].n_fragments = n_frag_new;
++            for (j=0; j<n_frag_new; j++)
++                dst_dir->fragment[dst_frag++] = new_fragments[j];
++        }
++        else
++        {
++            /* keep the other partitions */
++            src_frag = src_dir->partition[i].first_fragment;
++            n = src_dir->partition[i].n_fragments;
++            dst_dir->partition[i].first_fragment = dst_frag;
++            dst_dir->partition[i].n_fragments = n;
++            for (j = 0; j < n; j++)
++                dst_dir->fragment[dst_frag++] = src_dir->fragment[src_frag++];
++        }
++    }
++    dst_dir->n_fragments = dst_frag; /* total number of fragments */
++}
++
++
++/*
++ *  Get free sections from the free list
++ *  without actually changing the directory's content.
++ *
++ *  The caller must provide storage for the returned fragment list.
++ *  Return value is the number of fragments in the returned fragment list.
++ */
++int allocate_fragments(struct directory *dir,
++                        struct fragment_descriptor *fragments,
++                        int max_fragments, int n_sections)
++{
++    int i, j, len, n;
++
++    /*
++     * Walk through the free list and use the first fragment big
++     * enough to make the allocation in one piece.
++     */
++    i = dir->partition[0].first_fragment; /* usually 0, but not necessaryly */
++    for (j = 0; (j < dir->partition[0].n_fragments) && (j < max_fragments);
++         j++, i++)
++    {
++        len = dir->fragment[i].length;
++        if (len >= n_sections)
++        {
++            fragments[0].first_section = dir->fragment[i].first_section;
++            fragments[0].length = n_sections;
++            return 1; /* we are done */
++        }
++    }
++    /*
++     * We didn't find a single fragment big enough:
++     * Walk through the free list again,
++     * and collect as many fragments as needed from left to right.
++     */
++    n = n_sections; /* sections still to allocate */
++    i = dir->partition[0].first_fragment; /* usually 0, but not necessarily */
++    for (j = 0; (j < dir->partition[0].n_fragments) && (j < max_fragments);
++         j++, i++)
++    {
++        len =  dir->fragment[i].length;
++        fragments[j].first_section = dir->fragment[i].first_section;
++        if (len < n)
++        {
++            fragments[j].length = len;
++            n -= len;
++        }
++        else
++        {
++            fragments[j].length = n;
++            n = 0;
++            j++;
++            break; /* we are done */
++        }
++    }
++    if (n == 0)
++        return j;
++    else
++    {
++#ifndef __KERNEL__
++#ifdef TEST
++        printf("Not enough space in free list to allocate %d sections\n",
++               n_sections);
++#endif
++#endif
++        return 0;
++    }
++}
++
++/*
++ *  Merge all fragments of all partitions into one fragment list.
++ *  In an ordinary directory, this list will be complementary to the free list.
++ *  The directory's itself is not changed.
++ *
++ *  This special function is needed by the update tool, which may want
++ *  to exclude the running system's storage space from beeing used by
++ *  allocate_fragments().
++ *
++ *  The caller must provide storage for the returned fragment list.
++ *  Return value is the number of fragments in the merged list.
++ */
++int merge_partitions(struct directory *dir,
++                     struct fragment_descriptor *merged_fragments)
++{
++    int i, n;
++    int n_tmp_fragments = 0;
++    int n_merged_fragments = 0;
++    struct fragment_descriptor *tmp_fragments;
++    struct partition_descriptor *part;
++
++#ifdef __KERNEL__
++    if ((tmp_fragments = vmalloc(MAX_FRAGMENTS * sizeof(struct fragment_descriptor))) == NULL) {
++        printk(KERN_ERR "%s: Could not allocate %llu bytes for temp fragments list\n",
++               CLOOP_NAME, (unsigned long long) MAX_FRAGMENTS * sizeof(struct fragment_descriptor));
++        return 0;
++    }
++#else
++    if ((tmp_fragments = malloc(MAX_FRAGMENTS * sizeof(struct fragment_descriptor))) == NULL) {
++        printf("Could not allocate %llu bytes for temp fragments list\n",
++               (unsigned long long) MAX_FRAGMENTS * sizeof(struct fragment_descriptor));
++        return 0;
++    }
++#endif
++
++    for (i = 1; i < DIR_MAX_MINORS; i++)
++    {
++        part = &(dir->partition[i]);
++        if ((n = part->n_fragments) > 0)
++	{
++	    n_merged_fragments =
++            merge_fragments(&(dir->fragment[part->first_fragment]), n,
++                            tmp_fragments, n_tmp_fragments,
++                            merged_fragments);
++            memcpy(tmp_fragments, merged_fragments,
++                   n_merged_fragments * sizeof(struct fragment_descriptor));
++            n_tmp_fragments = n_merged_fragments;
++	}
++    }
++#ifdef __KERNEL__
++    vfree(tmp_fragments);
++#else
++    free(tmp_fragments);
++#endif
++    return n_merged_fragments;
++}
++#endif /* ifndef GRUB2_BOOTCODE */
++
++
++/*
++ *  Given a partition number minor and a logical section number i,
++ *  determine the corresponding pysical section number
++ *  by walking through the partition's fragment list.
++ *
++ *  Negative return values indicate error conditions.
++ */
++uint32_t get_physical_section(struct directory *dir, uint32_t minor, uint32_t i)
++{
++    struct partition_descriptor *part;
++    struct fragment_descriptor *frag;
++    size_t j;
++	uint16_t n_frag;
++	int n;
++
++    if (minor >= IGF_MAX_MINORS)
++        return 0xffffffff; /* invalid minor */
++    if (minor >= DIR_MAX_MINORS)
++	return 0xffffffff; /* hashing not yet implemented. TODO: implement! */
++    part = &(dir->partition[minor]);
++    if (part->minor != minor)
++	return 0xffffffff; /* minors don't match -> hash conflict */
++	/* TODO: Implement hash conflicts */
++    if ((n_frag = part->n_fragments) == 0)
++        return 0xffffffff; /* partition does not exist or is empty */
++    frag = &(dir->fragment[part->first_fragment]);
++
++    /* find the fragment to which section i belongs */
++    n = 1;                 /* # of fragments examined */
++    j = 0;                 /* # of sections contained in previous fragments */
++    while (i > j + frag->length - 1)
++    {
++        n++;
++        if (n > n_frag)
++            return 0xffffffff;    /* section number i exceeds partition length */
++        j += frag->length;
++        frag++;            /* next fragment */
++    }
++    return frag->first_section + i - j;
++}
++
++/*
++ *  Given a physical section number, determine the partition number
++ *  to which this section belongs (freelist = 0). If the section
++ *  doesn't belong to any partition, even not to the freelist,
++ *  the directory is in an inconsistent state. Return -1 in that case.
++ *
++ *  This function is only needed for the kernel driver
++ *  ioctl IGFLASH_ERASE_SECTION.
++ */
++int get_partition_from_section(struct directory *dir, uint32_t sect)
++{
++	struct partition_descriptor *part;
++	struct fragment_descriptor *frag;
++	int minor;
++	uint16_t n_frag;
++	int i;
++	uint32_t first_sect;
++
++	/* hashing not yet implemented. TODO: implement! */
++	for (minor = 0; minor < DIR_MAX_MINORS; minor++)
++	{
++		part = &(dir->partition[minor]);
++		if ((n_frag = part->n_fragments) == 0)
++			continue; /* partition does not exist */
++		for (i=0; i<n_frag; i++)
++		{
++			frag = &(dir->fragment[part->first_fragment+i]);
++			first_sect = frag->first_section;
++			if (sect < first_sect)
++				break;
++			else if (sect < first_sect + frag->length)
++				return minor;
++		}
++	}
++	return -1; /* section doesn't belong to any partition */
++}
++
++
++/*----------------------------------------------------------------------
++ *  Input / Output
++ */
++
++/*
++ *  Given a filedescriptor "rawfd" referring to the raw storage media,
++ *  this functions locates and reads a valid directory block from
++ *  section #0 into a caller provided buffer.
++ *  A directory is valid, if it contains a proper magic value and
++ *  if it passes the crc check. There are no consistency checks !
++ *
++ *  Return value is the offset at which a valid directory was found,
++ *  0, if none could be found.
++ *
++ *  TODO: if there are multiple valid directories, find the one
++ *        with the most recent "version" entry.
++ */
++#ifdef GRUB2_BOOTCODE
++int read_directory(struct directory *dir, grub_disk_t disk, grub_uint64_t part_offset)
++#elif defined __KERNEL__
++int read_directory(struct file *file, struct directory *dir)
++#else
++int read_directory(int rawfd, struct directory *dir)
++#endif
++{
++    loff_t offset;
++    uint32_t crc;
++    //int found = 0;
++
++    /* crc offsets for directory header */
++#ifdef GRUB2_BOOTCODE
++    static const grub_uint32_t crc_dir_offset = ((grub_addr_t)&(dir->crc) - (grub_addr_t)dir + sizeof(dir->crc));
++#else
++    static const uint32_t crc_dir_offset = ((uintptr_t)&(dir->crc) - (uintptr_t)dir + sizeof(dir->crc));
++#endif
++
++    makecrc(); /* crc initial table setup */
++
++    offset = DIR_OFFSET;
++
++#ifdef GRUB2_BOOTCODE
++    offset += part_offset;
++    igelpart_disk_read (disk, offset, sizeof (struct directory), dir);
++#elif defined __KERNEL__
++    cloop0_nocache_read_from_file(clo_get(0), file, (unsigned char *)dir,
++            offset, sizeof(struct directory));
++#else
++    if (lseek(rawfd, offset, SEEK_SET) == -1)
++    {
++        fprintf(stderr, "Error seeking flash position\n");
++        return 0;
++    }
++    if (read(rawfd, dir, sizeof(struct directory)) < 0)
++    {
++        fprintf(stderr, "Error reading directory\n");
++        return 0;
++    }
++#endif
++    if (dir->magic != DIRECTORY_MAGIC)
++        return 0;
++    /*
++     * calculate the checksum of the whole directory structure
++     * except the first 8 bytes (magic and crc)
++     */
++    (void) updcrc(NULL, 0); /* reset crc calculation state */
++    crc = updcrc((uint8_t *)dir + crc_dir_offset, sizeof(struct directory) - crc_dir_offset);
++
++    if (crc == dir->crc)
++    {
++#ifdef TEST
++        printf("Found valid directory at offset 0x%x\n", offset);
++#endif       
++        //found = 1;
++        return (int)offset;
++    }
++#ifdef __KERNEL__
++    printk(KERN_INFO "%s: no directory found\n", CLOOP_NAME);
++#endif
++    return 0;
++}
++
++
++#ifndef GRUB2_BOOTCODE
++/*
++ *  Given a filedescriptor "rawfd" referring to the raw storage media,
++ *  and a pointer to a directory structure, this function calculates
++ *  the directory's crc cecksum and writes the whole block to position
++ *  "offset" within section #0.
++ *
++ *  TODO: dir->version !
++ */
++#ifdef __KERNEL__
++void write_directory(struct file *file, struct directory *dir, int offset)
++#else /* __KERNEL__ */
++void write_directory(int rawfd, struct directory *dir, int offset)
++#endif /* __KERNEL__ */
++{
++    makecrc(); /* crc initial table setup */
++    /*
++     * calculate the checksum of the whole directory structure
++     * except the first 8 bytes (magic and crc)
++     */
++    (void) updcrc(NULL, 0); /* reset crc calculation state */
++    dir->crc = updcrc((unsigned char *)dir + 8, sizeof(struct directory) - 8);
++#ifdef __KERNEL__
++    igel_write_to_file(file, (char *)dir, sizeof(struct directory), offset);
++#else /* __KERNEL__ */
++    if (lseek(rawfd, offset, SEEK_SET) == -1)
++    {
++        printf("Error seeking flash position\n");
++        return;
++    }
++    if (write(rawfd, dir, sizeof(struct directory)) < 0)
++    {
++        printf("Error writing directory\n");
++        return;
++    }
++#endif /* __KERNEL__ */
++}
++
++static void print_fragment_list(struct fragment_descriptor *fragments, int n)
++{
++    int i, first, length, length_total;
++
++    if (n == 0)
++    {
++#ifdef __KERNEL__
++        printk(KERN_INFO "%s: fragment_list:  (empty)\n", CLOOP_NAME);
++#else
++        printf("  (empty)\n");
++#endif
++        return;
++    }
++    for (i=0, length_total=0; i<n; i++)
++    {
++        first  = fragments[i].first_section;
++        length = fragments[i].length;
++        length_total += length;
++#ifdef __KERNEL__
++	printk(KERN_INFO "  %3d-%3d", first, first + length - 1);
++#else
++        printf("  %3d-%3d", first, first + length - 1);
++#endif
++    }
++#ifdef __KERNEL__
++    printk(KERN_INFO "  total: %d\n", length_total);
++#else
++    printf("  total: %d\n", length_total);
++#endif
++}
++
++
++void print_directory(char *title, struct directory *dir)
++{
++    int i;
++    int n_fragments;
++#ifdef TEST
++    int n_merged;
++    struct fragment_descriptor merged_fragments[MAX_FRAGMENTS];
++#endif
++
++#ifdef __KERNEL__
++    printk(KERN_INFO "\n%s\n", title);
++    printk(KERN_INFO "magic: %0lx  crc: %0lx  version: %lu  n_fragments: %lu\n",
++            (long unsigned int)dir->magic, (long unsigned int)dir->crc, (long unsigned int)dir->version, (long unsigned int)dir->n_fragments);
++#else /* __KERNEL__ */
++    printf("\n%s\n", title);
++    printf("magic: %0lx  crc: %0lx  version: %lu  n_fragments: %lu\n",
++            (long unsigned int)dir->magic, (long unsigned int)dir->crc, (long unsigned int)dir->version, (long unsigned int)dir->n_fragments);
++#endif /* __KERNEL__ */
++
++    for (i = 0; i < DIR_MAX_MINORS; i++)
++        if ((n_fragments = dir->partition[i].n_fragments) > 0 || (i == 0))
++            {
++                if (i == 0)
++#ifdef __KERNEL__
++                    printk(KERN_INFO "free list:  ");
++#else
++                    printf("free list:  ");
++#endif
++                else
++#ifdef __KERNEL__
++                    printk(KERN_INFO "partition %d:", i);
++#else
++                    printf("partition %d:", i);
++#endif
++                print_fragment_list(
++                    &(dir->fragment[dir->partition[i].first_fragment]),
++                    n_fragments);
++            }
++#ifdef TEST
++    n_merged = merge_partitions(dir, merged_fragments);
++    printf("merged list:");
++    print_fragment_list(merged_fragments, n_merged);
++#endif
++}
++
++
++#ifdef TEST
++/*----------------------------------------------------------------------
++ *  Testing
++ */
++int main(int argc, char *argv[])
++{
++    int i, n;
++    int sys_size, usr_size;
++
++    printf("\n\n");
++    create_empty_directory(&dir1, 100);
++    print_directory("initial empty state", &dir1);
++    
++    /*
++     * Test 1
++     * Simulation of a typical update scenario (multiple times).
++     *
++     * At each update, both the sys partition (partition 1)
++     * and the usr partition (partition 2) grow a bit.
++     */
++    for (i=0; i<11; i++)
++    {
++        if (i == 0)
++            printf("\nInitial installation\n");
++        else
++            printf("\n%d. Update\n", i);
++        /*
++         * The usr partition (and eventually other partitions) is deleted
++         * in the sense, that the occupied fragments go back to the free
++         * list. They can be claimed again by allocate_fragments().
++         */
++        igeldir_delete_partition(&dir1, &dir2, 2);
++        print_directory("usr deleted", &dir2);
++
++        /* 
++         * The old sys partition is not deleted yet.
++         * We allocate additional sections/fragments for the new version
++         * of the sys partition without deleting the old one.
++         */
++        n = allocate_fragments(&dir2, new_fragments, 16, 20+i);
++
++        /*
++         * By updating the directory, the old sys partition entry is replaced
++         * by the the new one and the fragments occupied by the old sys
++         * partition go back to the free list. But the data sections of the
++         * old sys partition are still there.
++         */
++        igeldir_add_partition(&dir2, &dir1, 1, new_fragments, n);
++        print_directory("sys updated", &dir1);
++
++        /*
++         * Finally, (after a reboot) a new usr partition
++         * (and eventually others) is getting installed.
++         * Only here, the fragments of the old sys partition are reused.
++         */
++        n = allocate_fragments(&dir1, new_fragments, 16, 50+2*i);
++        igeldir_add_partition(&dir1, &dir2, 2, new_fragments, n);
++        print_directory("usr updated", &dir2);
++    }
++
++    /*
++     * Test 2
++     * Mapping of logical section numbers to physical sections
++     */
++    printf("\nSection table of partition 2:\n");
++    usr_size = 50+2*(i-1);
++    for (i=0; i<usr_size; i++)
++    {
++        printf("%3d  %3d\n", i, get_physical_section(&dir2, 2, i));
++    }
++    
++    return 0;
++}
++#endif /* ifdef TEST */
++#endif /* ifndef GRUB2_BOOTCODE */
++
+diff -Naurp grub2_2.02~beta3-4.ori/grub-core/partmap/igel.c grub2_2.02~beta3-4/grub-core/partmap/igel.c
+--- grub2_2.02~beta3-4.ori/grub-core/partmap/igel.c	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/grub-core/partmap/igel.c	2017-02-15 14:52:59.103510000 +0100
+@@ -0,0 +1,825 @@
++/* igel.c - Read IGEL style partition tables.  */
++/*
++ *  GRUB  --  GRand Unified Bootloader
++ *  Copyright (C) 2002,2004,2005,2006,2007,2008,2009  Free Software Foundation, Inc.
++ *
++ *  GRUB is free software: you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation, either version 3 of the License, or
++ *  (at your option) any later version.
++ *
++ *  GRUB is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with GRUB.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include <grub/partition.h>
++#include <grub/disk.h>
++#include <grub/mm.h>
++#include <grub/misc.h>
++#include <grub/env.h>
++#include <grub/dl.h>
++#include <grub/msdos_partition.h>
++#include <grub/gpt_partition.h>
++#include <grub/igel_partition.h>
++#include <grub/i18n.h>
++#include <grub/command.h>
++
++GRUB_MOD_LICENSE ("GPLv3+");
++
++#ifdef GRUB_UTIL
++#include <grub/emu/misc.h>
++#endif
++
++static struct grub_partition_map grub_igel_partition_map;
++
++static grub_uint32_t crc_32_tab[256];	/* crc table, defined below */
++static grub_uint32_t n_sections;
++static grub_uint32_t sys_sect;
++static grub_uint32_t found_secure_sys_sect = 0;
++static struct igf_sect_hdr sh;
++static const grub_uint64_t end_section = 0xffffffffffffffff >> ((8 - sizeof(sh.next_section)) * 8);
++
++grub_uint32_t sys_first_section = 0xffffffffffffffff >> ((8 - sizeof(sh.next_section)) * 8); /* Used in fs/igelkernel.c */
++grub_uint32_t bspl_first_section = 0xffffffffffffffff >> ((8 - sizeof(sh.next_section)) * 8); /* Used in fs/igelsplash.c to find first section of the IGEL bootsplash partition */
++grub_uint32_t cbspl_first_section = 0xffffffffffffffff >> ((8 - sizeof(sh.next_section)) * 8); /* Used in fs/igelsplash.c to find first section of the IGEL custom bootsplash partition */
++
++/* function prototypes */
++
++int read_partition_header(grub_uint32_t section, grub_disk_t disk, grub_uint64_t part_offset, struct igf_part_hdr *partition);
++int find_root_partition_secure(grub_disk_t disk, grub_uint64_t part_offset, grub_uint32_t max_sections);
++static int check_chain_of_sections(grub_disk_t disk, grub_uint64_t part_offset, uint32_t part, grub_uint32_t first_sect, grub_uint32_t max_sections, grub_uint32_t *bad_chain);
++
++
++grub_err_t igelpart_disk_read (grub_disk_t disk, grub_uint64_t offset, grub_size_t size, void *buf)
++{
++       grub_size_t len, read;
++       grub_err_t ret = 0;
++       grub_uint8_t *buffer;
++       grub_partition_t part = NULL;
++
++       /* Need to access the whole disk (IGEL DOS partition) */
++       /* Therefore we null out the partition infos here from the given disk. */
++       /* Otherwise the grub_disk_read() function might detect an access beyond the end of the device, */
++       /* if the IGEL system partition is fragmented across the IGELs DOS partition. */
++       if(disk->partition) {
++             offset += disk->partition->start << GRUB_DISK_SECTOR_BITS; /* Convert the offset to be disk-relative */
++             part = disk->partition; /* Save the current partition info */
++             disk->partition = NULL; /* Clear the disks partition info temporarily */
++       }
++
++       buffer = (grub_uint8_t *)buf;
++       read = 0;
++       len = size & ~(((grub_size_t)1<<GRUB_DISK_SECTOR_BITS)-1);
++       if (len > 0) {
++           /* it is ridiculus but efidisk seems to have problems if one reads bigger blocks as 32k */
++           while (read < len)
++           {
++               if (len - read > 0x8000) {
++                   ret = grub_disk_read (disk, (offset + read) >> GRUB_DISK_SECTOR_BITS, (offset + read) & ((1<<GRUB_DISK_SECTOR_BITS)-1), 0x8000, &buffer[read]);
++                   read += 0x8000;
++               } else {
++                   ret = grub_disk_read (disk, (offset + read) >> GRUB_DISK_SECTOR_BITS, (offset + read) & ((1<<GRUB_DISK_SECTOR_BITS)-1), len - read, &buffer[read]);
++                   read += len - read;
++               }
++               if (ret < 0) {
++                   disk->partition = part; /* Restore the partition info */
++                   return ret;
++               }
++           }
++       }
++
++       if (len < size) {
++           offset += len;
++           len = size - len;
++           ret = grub_disk_read (disk, offset >> GRUB_DISK_SECTOR_BITS, offset & ((1<<GRUB_DISK_SECTOR_BITS)-1), len, &buffer[read]);
++       }
++
++       disk->partition = part; /* Restore the partition info */
++
++       return ret;
++}
++
++static grub_err_t igel_disk_write (grub_disk_t disk, grub_uint64_t offset, grub_size_t size, void *buf)
++{
++	return  grub_disk_write (disk, offset >> GRUB_DISK_SECTOR_BITS, offset & (((grub_size_t)1<<GRUB_DISK_SECTOR_BITS)-1), size, buf);
++}
++
++
++/*****************************************************************************
++ * CRC functions block
++ *****************************************************************************/
++
++/*
++ * Run a set of bytes through the crc shift register.  If s is a NULL
++ * pointer, then initialize the crc shift register contents instead.
++ * Return the current crc in either case.
++ *
++ * s:	pointer to bytes to pump through
++ * n:   number of bytes in s[]
++ */
++grub_uint32_t updcrc(unsigned char *s, unsigned int n)
++{
++	register grub_uint32_t c;			/* temporary variable      */
++	static grub_uint32_t crc = (grub_uint32_t) 0xffffffffL;	/* shift register contents */
++
++	if (s == NULL) {
++		c = 0xffffffffL;
++	} else {
++		c = crc;
++		while (n--) {
++			c = crc_32_tab[((int) c ^ (*s++)) & 0xff] ^ (c >> 8);
++		}
++	}
++	crc = c;
++	return c ^ 0xffffffffL;	   /* (instead of ~c for 64-bit machines) */
++}
++
++
++/*
++ * Initial table setup
++ * Not copyrighted 1990 Mark Adler
++ */
++void makecrc(void)
++{
++	grub_uint32_t c;	/* crc shift register */
++	grub_uint32_t e;	/* polynomial exclusive-or pattern */
++	unsigned int i;		/* counter for all possible eight bit values */
++	int k;		/* byte being shifted into crc apparatus */
++
++	/* terms of polynomial defining this crc (except x^32): */
++	static int p[] =
++		{0, 1, 2, 4, 5, 7, 8, 10, 11, 12, 16, 22, 23, 26};
++
++	/* Make exclusive-or pattern from polynomial */
++	e = 0;
++	for (i = 0; i < sizeof(p) / sizeof(int); i++)
++		e |= 1L << (31 - p[i]);
++
++	crc_32_tab[0] = 0;
++
++	for (i = 1; i < 256; i++) {
++		c = 0;
++		for (k = i | 256; k != 1; k >>= 1) {
++			c = c & 1 ? (c >> 1) ^ e : c >> 1;
++			if (k & 1)
++				c ^= e;
++		}
++		crc_32_tab[i] = c;
++	}
++}
++
++/*****************************************************************************
++ * end CRC functions block
++ *****************************************************************************/
++
++/*
++ * find_root_partition_by_directory
++ *
++ * Find a partition with minor number 1 and the highest version number.
++ * (A parition is a linked list of sections with valid CRC checksums.)
++ *
++ * Method: Check whether a valid directory exists and whether it contains
++ *         a partition #1. The directory contains everything needed to
++ *         access the partition's payload. The consistency of the
++ *         partition data is not checked.
++ */
++
++static int find_root_partition_by_directory(struct directory *dir1)
++{
++  int i;
++  struct partition_descriptor *p;
++  p = &(dir1->partition[1]);
++
++  if (p->n_fragments <= 0)
++  {
++    /* no root partition - this should never happen */
++    grub_dprintf("partition", "The directory doesn't contain a root partition !\n");
++    return(-1);
++  }
++
++  /*
++   * Calculate the length of partition #1 in sections.
++   * This information is not explicitly contained in the directory.
++   */
++
++  n_sections = 0;
++  for (i=p->first_fragment; i<p->first_fragment+p->n_fragments; i++)
++    n_sections += dir1->fragment[i].length;
++
++  return(0);
++}
++
++/*----------------------------------------------------------------------
++ *  Local data
++ */
++
++/*
++ * Read the header of the partition that has been located
++ * by find_root_partition_xxx() before.
++ */
++
++int 
++read_partition_header(grub_uint32_t section, grub_disk_t disk, grub_uint64_t part_offset, struct igf_part_hdr *partition)
++{
++    grub_uint64_t offset;
++
++    offset = part_offset + START_OF_SECTION(section) + IGF_SECT_HDR_LEN;
++    igelpart_disk_read (disk, offset, sizeof(struct igf_part_hdr), partition);
++    if (partition->type != PTYPE_IGEL_COMPRESSED 
++    && partition->type != PTYPE_IGEL_RAW
++    && partition->type != PTYPE_IGEL_RAW_RO)
++    {
++	grub_dprintf("partition", "The root/system partition is not of type compressed, raw or raw_ro !\n");
++	return 1;
++    }
++
++    grub_dprintf("partition", "igf_part_hdr: type 0x%x, hdrlen 0x%x, partlen 0x%llx, n_blocks 0x%llx\n"
++                 , partition->type, partition->hdrlen, (unsigned long long)partition->partlen, (unsigned long long)partition->n_blocks);
++    grub_dprintf("partition", "igf_part_hdr: n_extents 0x%x, offset_blocktable 0x%llx, offset_blocks 0x%llx\n"
++                 , partition->n_extents, (unsigned long long)partition->offset_blocktable, (unsigned long long)partition->offset_blocks);
++    grub_dprintf("partition", "igf_part_hdr: n_clusters 0x%x, cluster_shift 0x%x\n"
++                 , partition->n_clusters, partition->cluster_shift);
++
++    return 0;
++}
++
++/*
++ * Follow a chain of sections and check their CRC checksums
++ *
++ * This is a helper function for find_root_partition_secure().
++ * Return values: 1=chain ok, 0=chain not ok
++ */
++
++static int
++check_chain_of_sections(grub_disk_t disk, grub_uint64_t part_offset, grub_uint32_t part, grub_uint32_t first_sect, grub_uint32_t max_sections, grub_uint32_t *bad_chain)
++{
++	grub_uint32_t i;
++	grub_uint32_t sect, old_sect;
++	grub_uint16_t version;
++	grub_uint32_t from, crc, header_crc;
++	grub_uint32_t section_in_minor;
++	struct igf_sect_hdr *shp;
++	unsigned char *buffer = NULL;
++
++	/* crc offsets for section and directory header */
++	static const grub_uint32_t crc_sh_offset = (grub_uint32_t) ((grub_addr_t)&(sh.crc) - (grub_addr_t)&sh + sizeof(sh.crc));
++
++	/* Modulo for section in minor */
++
++	static const grub_uint64_t mod_sect_in_minor = (grub_uint64_t) 1UL << (sizeof(sh.section_in_minor) * 8);
++
++	igelpart_disk_read (disk, part_offset + START_OF_SECTION(first_sect), sizeof(struct igf_sect_hdr), &sh);
++	version = sh.generation;
++	section_in_minor = sh.section_in_minor;
++	n_sections = 1;
++	grub_printf("CRC check partition %d generation %d: ", part, version);
++
++	sys_sect = first_sect;
++
++	while ((sect = sh.next_section) != end_section)
++	{
++		if ((sect == end_section) || (sect >= max_sections))
++		{
++			grub_printf("corrupt chain (bad link)\n");
++			*bad_chain = first_sect;
++			return 0;
++		}
++		/* Read next section header */
++		igelpart_disk_read (disk, part_offset + START_OF_SECTION(sect), sizeof(struct igf_sect_hdr), &sh);
++		if ((sh.section_in_minor != n_sections % mod_sect_in_minor) || 
++		    (n_sections % mod_sect_in_minor == 0 && n_sections >= mod_sect_in_minor &&
++		    section_in_minor != mod_sect_in_minor - 1) ||
++		    (sh.partition_minor != part) ||
++		    (sh.generation != version))
++		{
++			grub_printf("corrupt chain (inconsistent)\n");
++			*bad_chain = first_sect;
++			return 0;
++		}
++
++		section_in_minor = sh.section_in_minor;
++		n_sections++;
++
++		if (n_sections >= max_sections)
++		{
++			grub_printf("chain too long (cyclic ?)\n");
++			*bad_chain = first_sect;
++			return 0;
++		}
++	}
++
++	if ((buffer = grub_malloc(IGF_SECTION_SIZE)) == NULL) {
++		grub_printf("\n\nError could not allocate %llu bytes of memory to do CRC check!\n", (unsigned long long) IGF_SECTION_SIZE);
++		return 0;
++	}
++
++	/*
++	 * We have found a complete sequence of sections.
++	 * Test the crc checksum of each one.
++	 */
++	makecrc();	/* build the crc lookup table */
++	sect = first_sect;
++	old_sect = sect;
++	for (i=0; i<n_sections; i++)
++	{
++		if (n_sections > 10) {
++			if (i % (n_sections / 10) == 0)
++				grub_printf(".");
++		} else {
++			grub_printf(".");
++		}
++		updcrc(NULL, 0);
++		from = START_OF_SECTION(sect);
++		igelpart_disk_read (disk, part_offset + from, IGF_SECTION_SIZE, buffer);
++		shp =  (struct igf_sect_hdr *)buffer;
++		header_crc = shp->crc;
++		sect = shp->next_section;
++		/* skip the crc_sh_offset (offset is calculated to match section header structure) */
++		crc = updcrc(buffer + crc_sh_offset, IGF_SECTION_SIZE - crc_sh_offset);
++		if (crc != header_crc)
++		{
++			grub_printf("crc error, bad section %d crc=%x, should be %x\n",
++			        old_sect, crc, header_crc);
++			*bad_chain = first_sect;
++			grub_free(buffer);
++			return 0;
++		}
++		old_sect = sect;
++	}
++	grub_free(buffer);
++
++	grub_printf(" ok\n");
++	return 1;	/* chain is ok */
++}
++
++/* function checks sys partition header for errors and return 0 if error was detected and 1 if not */
++
++static int
++check_sys_partition_header (grub_disk_t disk, grub_uint64_t part_offset, grub_uint32_t sect)
++{
++	struct igf_part_hdr part;
++	struct igf_partition_extent extent;
++	grub_uint8_t ext;
++	int ret = 0;
++
++
++	if (read_partition_header(sect, disk, part_offset, &part) != 0) {
++		grub_dprintf("partition", "read_partition_header failed for sys partition\n");
++		return 0;
++	}
++
++	if (part.type != PTYPE_IGEL_COMPRESSED
++        && part.type != PTYPE_IGEL_RAW
++        && part.type != PTYPE_IGEL_RAW_RO) {
++		grub_dprintf("partition", "wrong partition type 0x%lu for a system partition\n", (unsigned long) part.type);
++		return 0;
++	}
++
++	if (part.n_extents != 0) {
++		for (ext=0;ext<part.n_extents;ext++) {
++			igelpart_disk_read (disk, 
++					part_offset + START_OF_SECTION(sect) + IGF_SECT_HDR_LEN 
++					+ sizeof(struct igf_part_hdr) + ext * sizeof(struct igf_partition_extent), 
++					sizeof(struct igf_partition_extent), &extent); 
++			if (extent.type == EXTENT_TYPE_KERNEL
++			|| extent.type == EXTENT_TYPE_RAMDISK
++			|| extent.type == EXTENT_TYPE_SPLASH) {
++				if (extent.offset >= part.offset_blocktable) {
++					grub_dprintf("partition", "Error: offset of extent collides with offset_blocktable -> extents header invalid\n");
++					ret = 0;
++					break;
++				}
++			}
++			if (extent.type == EXTENT_TYPE_KERNEL) {
++				grub_dprintf("partition", "Found valid extent of type KERNEL\n");
++				ret = 1;
++			}
++		}
++	}
++
++	return ret;
++}
++
++/*
++ * find_root_partition_secure
++ *
++ * Find a partition with minor number 1 and the highest version number.
++ * (A partition is a linked list of sections with valid CRC checksums.)
++ *
++ * Method: Look at the section headers and find a complete chain
++ *         belonging to partition #1 with the highest version number.
++ *         Then test the crc checksum of each section.
++ */
++
++int
++find_root_partition_secure(grub_disk_t disk, grub_uint64_t part_offset, grub_uint32_t max_sections)
++{
++	grub_uint32_t sect;
++	grub_uint32_t first_sect = 0;
++	grub_uint32_t invalidate_sect = 0;
++	grub_uint32_t alternate_first_sect = 0;
++	grub_uint32_t bad_chain = 0;
++	int done = 0;
++	int number_of_bad_chains = 0;
++	unsigned int diff;
++	grub_uint16_t version;
++
++	/* prevent grub2 to do the search and CRC check several times, use found_secure_sys_sect
++	 * if present and valid */
++
++	if (found_secure_sys_sect != 0) {
++        	if (check_sys_partition_header (disk, part_offset, found_secure_sys_sect) != 0) {
++			sys_sect = found_secure_sys_sect;
++			return 0;
++		}
++		found_secure_sys_sect = 0;
++	}
++
++	while (!done)
++	{
++		version = 0;
++		for (sect=1; sect<(grub_uint32_t)max_sections; sect++)
++		{
++			if ((sect & 0xf) == 0)
++				grub_printf("%d/%d (%d%%) \r",
++				       sect, max_sections, (sect + 16) * 100 / max_sections);
++			
++			igelpart_disk_read (disk, part_offset + START_OF_SECTION(sect), sizeof(struct igf_sect_hdr), &sh);
++			if ((sh.partition_minor == 1) && (sh.section_in_minor == 0))
++			{
++				if (sect == bad_chain)
++					continue;
++				/* version difference gives a hint about wrap arounds */
++				if (sh.generation > version)
++					diff = sh.generation - version;
++				else
++					diff = version - sh.generation;
++				
++				if (diff >= 65534)
++				{
++					/*
++					 * if diff is large and version is 1,
++					 * the version is wraped around and
++					 * we have stored 1 already
++					 */
++					if (version == 1)
++						continue;
++					/* a wrap around too, but the 1 has to be stored */
++					if (sh.generation == 1)
++					{
++						version = sh.generation;
++						alternate_first_sect = first_sect;
++						first_sect = sect;
++						continue;
++					}
++				}				
++				/* the default case */
++				if (sh.generation > version)
++				{
++					if (check_sys_partition_header(disk, part_offset, sect) == 0) {
++						invalidate_sect = sect;
++					} else {
++						version = sh.generation;
++						alternate_first_sect = first_sect;
++						first_sect = sect;
++						grub_printf("                   "
++						       "partition 1 generation %d at section %lu  \r",
++						       version, (unsigned long) first_sect);
++					}
++				}
++			}		
++		}
++		grub_printf("\n");
++		if (version == 0)
++		{
++			grub_printf("No valid boot/system partition found\n\n");
++			return(1);
++		}
++
++		/* invalidate sys partition if partition header is corrupted and there is a other sys partition present */
++
++		if (invalidate_sect != 0 && first_sect != 0) {
++			igelpart_disk_read (disk, part_offset + START_OF_SECTION(invalidate_sect), sizeof(struct igf_sect_hdr), &sh);
++			sh.generation = 0;
++			igel_disk_write (disk, part_offset + START_OF_SECTION(invalidate_sect), sizeof(struct igf_sect_hdr), &sh);
++		}
++
++		done = check_chain_of_sections(disk, part_offset, 1, first_sect, max_sections, &bad_chain);
++		if (done) {
++			found_secure_sys_sect = sys_sect;
++			return(0);
++		}
++
++		grub_printf("\n");
++		number_of_bad_chains++;
++		if (number_of_bad_chains > 1)
++		{
++			grub_printf("Found %d bad chains: giving up\n",
++			       number_of_bad_chains);
++			return(1);
++		}
++		if (alternate_first_sect > 0) {
++			done = check_chain_of_sections(disk, part_offset, 1, alternate_first_sect,
++			                               max_sections, &bad_chain);
++			if (done) {
++				found_secure_sys_sect = sys_sect;
++				return(0);
++			} else
++				return(1);
++		}
++	}
++	return(0);
++}
++
++static grub_err_t
++iterate_real (grub_disk_t disk, const grub_partition_t partition,
++	      struct grub_partition_map *pmap,
++	      grub_partition_iterate_hook_t hook, void *hook_data)
++{
++  grub_uint32_t pdir_magic;
++  grub_uint64_t bootreg_magic;
++  struct igf_part_hdr php;
++  struct directory pdir;
++  struct grub_partition p;
++  grub_uint32_t section;
++  grub_uint64_t part_offset = partition->start << GRUB_DISK_SECTOR_BITS;
++  int number_of_sections;
++  int directory_present = 0, secure_boot = 0;
++  grub_int32_t i = 0;
++  const char *part_check;
++  grub_uint8_t found = 0;
++  const char *arg;
++  char *args[1];
++
++  /* Read the possible IGEL labels (PDIR and BOOTREG).  */
++  if (found == 0) {
++    if (igelpart_disk_read (disk, part_offset + IGEL_BOOTREG_OFFSET, sizeof(grub_uint64_t), &bootreg_magic))
++      return grub_errno;
++
++    if (bootreg_magic == grub_cpu_to_le64 (IGEL_BOOTREG_MAGIC)) {
++      grub_dprintf("partition", "Found IGEL bootreg magic on offset 0x%llx\n", (unsigned long long) IGEL_BOOTREG_OFFSET);
++      found = 1;
++    }
++  }
++
++  if (found == 0) {
++    if (igelpart_disk_read (disk, part_offset + DIR_OFFSET, sizeof(grub_uint32_t), &pdir_magic))
++      return grub_errno;
++
++    if (pdir_magic == grub_cpu_to_le32 (DIRECTORY_MAGIC)) {
++      grub_dprintf("partition", "Found IGEL directory magic on offset 0x%llx\n", (unsigned long long) DIR_OFFSET);
++      found = 1;
++    }
++  }
++
++  /* Check if it is valid.  */
++  if (found == 0) {
++    grub_dprintf("partition", "no IGEL signature found\n");
++    return grub_error (GRUB_ERR_BAD_PART_TABLE, "no IGEL signature");
++  }
++
++  section = end_section;
++
++  /* if igel_part_check is set to true do not use directory */
++
++  part_check = grub_env_get ("igel_part_check");
++
++  if (part_check) {
++    if (grub_strcmp (part_check, "true") == 0) {
++      secure_boot = 1;
++      grub_dprintf("partition", "Using find_root_partition_secure and ignoring IGEL partition directory\n");
++    }
++  }
++
++  if (secure_boot == 0) {
++    /* check directory */
++    if (read_directory(&pdir, disk, part_offset) > 0) {
++      directory_present = 1;
++      grub_dprintf("partition", "read_directory succeded\n");
++      if (find_root_partition_by_directory(&pdir) == 0) {
++        section = get_physical_section(&pdir, 1, 0);
++	/* check if partition header is valid, if not set section = -1 */
++        if (check_sys_partition_header (disk, part_offset, section) == 0)
++          section = end_section;
++      } else {
++        grub_dprintf("partition", "find_root_partition_section failed\n");
++      }
++    }
++  }
++
++  /* if section is still unknown use secure root find function */
++  if (section == end_section) {
++    /* switch to console mode, so the grub_printf are displayed */
++    arg = grub_strdup("console");
++    args[0] = (char *)arg;
++    grub_command_execute ("terminal_output", 1, args);
++
++    number_of_sections = (partition->len << GRUB_DISK_SECTOR_BITS) >> IGF_SECTION_SHIFT; /* number of IGEL sections */
++    if (secure_boot == 0) {
++      grub_printf("Searching system partition (partition directory not found or invalid):\n");
++    } else {
++      grub_printf("Searching system partition (failsafe boot):\n");
++    }
++    if (find_root_partition_secure(disk, part_offset, number_of_sections) == 0)
++      section = sys_sect;
++  }
++
++  grub_dprintf("partition", "section with root partition 0x%x\n", section);
++
++  if (section == end_section) {
++    grub_command_execute ("clear", 0, NULL);
++    grub_printf("Couldn't find valid IGEL partition. Please contact our support (service area on www.igel.com) to recover the system.");
++    arg = grub_strdup("360");
++    args[0] = (char *)arg;
++    while (1) {
++    	grub_command_execute ("sleep", 1, args);
++    }
++    /* never reached */
++    return grub_errno;
++  }
++
++  sys_first_section = section; /* Used in fs/igelkernel.c */
++
++  grub_dprintf("partition", "start reading partition header\n");
++  read_partition_header(section, disk, part_offset, &php);
++
++  p.number = 0;
++  p.offset = (part_offset + START_OF_SECTION(section) + IGF_SECT_HDR_LEN) / GRUB_DISK_SECTOR_SIZE;
++  p.index = (part_offset + START_OF_SECTION(section) + IGF_SECT_HDR_LEN) % GRUB_DISK_SECTOR_SIZE;
++  p.start = p.offset;
++  //p.start = p.offset + (grub_le_to_cpu32 (php.offset_kernel) << (disk->log_sector_size - GRUB_DISK_SECTOR_BITS));
++  p.len = (grub_le_to_cpu32 (n_sections << IGF_SECTION_SHIFT) >> GRUB_DISK_SECTOR_BITS) << (disk->log_sector_size - GRUB_DISK_SECTOR_BITS);
++  p.partmap = pmap;
++  p.parent = partition;
++
++  grub_dprintf("partition", "partition %d: offset 0x%llx, index 0x%x, start kernel 0x%llx, len 0x%llx\n", p.number, (unsigned long long)p.offset, p.index, (unsigned long long)p.start, (unsigned long long)p.len);
++
++  if (hook (disk, &p, hook_data))
++    return grub_errno;
++
++  if (directory_present == 1) {
++    for (i=2;i<IGF_MAX_MINORS;i++) {
++      section = get_physical_section(&pdir, i, 0);
++      if (section == end_section) 
++        continue;
++      if (i == 23)  bspl_first_section = section;
++      if (i == 252) cbspl_first_section = section;
++      read_partition_header(section, disk, part_offset, &php);
++      p.number = i - 1;
++      p.offset = (part_offset + START_OF_SECTION(section) + IGF_SECT_HDR_LEN) / GRUB_DISK_SECTOR_SIZE;
++      p.index = (part_offset + START_OF_SECTION(section) + IGF_SECT_HDR_LEN) % GRUB_DISK_SECTOR_SIZE;
++      p.start = p.offset;
++      //p.start = p.offset + (grub_le_to_cpu32 (php.offset_blocktable) << (disk->log_sector_size - GRUB_DISK_SECTOR_BITS));
++      p.len = php.partlen >> GRUB_DISK_SECTOR_BITS;
++      p.partmap = pmap;
++      p.parent = partition;
++      grub_dprintf("partition", "partition %d: offset 0x%llx, index 0x%x, start kernel 0x%llx, len 0x%llx\n", p.number, (unsigned long long)p.offset, p.index, (unsigned long long)p.start, (unsigned long long)p.len);
++      if (hook (disk, &p, hook_data))
++        return grub_errno;
++    }
++  }
++  return GRUB_ERR_NONE;
++}
++
++/* Context for igel_partition_map_iterate.  */
++struct igelpartition_ctx
++{
++  grub_uint8_t type;
++  struct grub_partition_map *pmap;
++  grub_partition_iterate_hook_t hook;
++  void *hook_data;
++  int count;
++};
++
++/* Helper for igel_partition_map_iterate.  */
++static int
++check_msdos (grub_disk_t dsk, const grub_partition_t partition, void *data)
++{
++  struct igelpartition_ctx *ctx = data;
++  grub_err_t err;
++
++  grub_dprintf("partition", "check_msdos\n");
++
++  if (partition->msdostype != ctx->type) {
++    grub_errno = GRUB_ERR_NONE;
++    return 0;
++  }
++
++  err = iterate_real (dsk, partition, ctx->pmap,
++		      ctx->hook, ctx->hook_data);
++
++  if (err == GRUB_ERR_NONE)
++    {
++      ctx->count++;
++      return 1;
++    }
++  if (err == GRUB_ERR_BAD_PART_TABLE)
++    {
++      grub_errno = GRUB_ERR_NONE;
++      return 0;
++    }
++  grub_print_error ();
++  return 0;
++}
++
++/* Helper for igel_partition_map_iterate.  */
++static int
++check_gpt (grub_disk_t dsk, const grub_partition_t partition, void *data)
++{
++  struct igelpartition_ctx *ctx = data;
++  grub_err_t err;
++
++  grub_dprintf("partition", "check_gpt\n");
++
++  err = iterate_real (dsk, partition, ctx->pmap,
++		          ctx->hook, ctx->hook_data);
++
++  if (err == GRUB_ERR_NONE)
++    {
++      ctx->count++;
++      return 1;
++    }
++  if (err == GRUB_ERR_BAD_PART_TABLE)
++    {
++      grub_errno = GRUB_ERR_NONE;
++      return 0;
++    }
++  grub_print_error ();
++  return 0;
++}
++
++static grub_err_t
++igel_partition_map_iterate (grub_disk_t disk,
++			    grub_partition_iterate_hook_t hook,
++			    void *hook_data)
++{
++
++  if (disk->partition && grub_strcmp (disk->partition->partmap->name, "msdos")
++      == 0)
++    return grub_error (GRUB_ERR_BAD_PART_TABLE, "no embedding supported");
++
++  if (disk->partition && grub_strcmp (disk->partition->partmap->name, "gpt")
++      == 0)
++    return grub_error (GRUB_ERR_BAD_PART_TABLE, "no embedding supported");
++
++  struct igelpartition_ctx ctx = {
++    .type = GRUB_PC_PARTITION_TYPE_EXT2FS,
++    .pmap = &grub_igel_partition_map,
++    .hook = hook,
++    .hook_data = hook_data,
++    .count = 0
++  };
++  grub_err_t err;
++  struct grub_msdos_partition_mbr mbr;
++  unsigned int i;
++  unsigned int gpt = 0;
++
++  /* Read the protective MBR.  */
++  if (! grub_disk_read (disk, 0, 0, sizeof (mbr), &mbr)) {
++    /* Check if it is valid.  */
++    if (mbr.signature == grub_cpu_to_le16 (GRUB_PC_PARTITION_SIGNATURE)) {
++      /* Make sure the MBR is a protective MBR and not a normal MBR.  */
++      for (i = 0; i < 4; i++)
++        if (mbr.entries[i].type == GRUB_PC_PARTITION_TYPE_GPT_DISK)
++          break;
++      if (i < 4) {
++        grub_dprintf("partition", "Search for IGEL partition (gpt partition table)\n");
++        err = grub_gpt_partition_map_iterate(disk, check_gpt, &ctx);
++        gpt = 1;
++      }
++    }
++  }
++
++  if (gpt == 0) {
++    grub_dprintf("partition", "Search for IGEL partition (msdos partition table)\n");
++    err = grub_partition_msdos_iterate (disk, check_msdos, &ctx);
++  }
++
++  if (err)
++    return err;
++  if (!ctx.count)
++    return grub_error (GRUB_ERR_BAD_PART_TABLE, "no igel sys partition found");
++  
++  return GRUB_ERR_NONE;
++}
++
++static struct grub_partition_map grub_igel_partition_map =
++  {
++    .name = "igel",
++    .iterate = igel_partition_map_iterate,
++  };
++
++GRUB_MOD_INIT(part_igel)
++{
++  grub_partition_map_register (&grub_igel_partition_map);
++}
++
++GRUB_MOD_FINI(part_igel)
++{
++  grub_partition_map_unregister (&grub_igel_partition_map);
++}
+diff -Naurp grub2_2.02~beta3-4.ori/igel-all-modules-efi.lst grub2_2.02~beta3-4/igel-all-modules-efi.lst
+--- grub2_2.02~beta3-4.ori/igel-all-modules-efi.lst	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/igel-all-modules-efi.lst	2016-10-28 09:29:29.884078000 +0200
+@@ -0,0 +1,55 @@
++boot
++cat
++chain
++configfile
++diskfilter
++disk
++echo
++efi_gop
++efi_uga
++eval
++ext2
++extcmd
++fat
++file
++font
++gfxmenu
++gfxterm_background
++gfxterm_menu
++gfxterm
++gzio
++hfsplus
++iso9660
++jpeg
++linux16
++linuxefi
++linux
++ls
++lzopio
++memdisk
++minicmd
++mmap
++msdospart
++normal
++part_gpt
++part_msdos
++png
++regexp
++relocator
++search_fs_file
++search_fs_uuid
++search_label
++search
++terminal
++test
++tr
++true
++udf
++video_bochs
++video_cirrus
++videoinfo
++video
++videotest
++video_colors
++video_fb
++xzio
+diff -Naurp grub2_2.02~beta3-4.ori/igel_build_and_copy.sh grub2_2.02~beta3-4/igel_build_and_copy.sh
+--- grub2_2.02~beta3-4.ori/igel_build_and_copy.sh	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/igel_build_and_copy.sh	2017-10-20 10:40:24.478232000 +0200
+@@ -0,0 +1,191 @@
++#!/bin/sh
++
++print_usage () {
++	echo "usage: ./igel_build_and_copy.sh debian	     - apply patches, execute autoconfigure and build grub initially"
++	echo "usage: ./igel_build_and_copy.sh make	     - compile all grub-core sources. Note that you need to run './igel_build_and_copy.sh debian' first"
++        echo "usage: ./igel_build_and_copy.sh build          - build all GRUB2 modules and BIOS/EFI binaries"
++        echo "usage: ./igel_build_and_copy.sh copy 'SVN_DIR' - copy GRUB2 modules and binaries to their respective IGELmaker3 modules. Please provide the path to your individual IGELmaker3 base directory as third argument."
++        exit 1
++}
++
++check_root () {
++        if [ "x$EUID" = "x" ] ; then
++                EUID=`id -u`
++        fi
++        if [ "$EUID" != 0 ] ; then
++                echo "ERROR: you need to be root to build GRUB2!"
++                exit 1
++        fi
++}
++
++change_ubuntu () {
++	if [ -e "$1" ]; then
++		sed -i "s#^[^:]\{1,\}:[^;]\{1,\};#${PKGDISTRI}_amd64:${PKGNAME}_${PKGVERSION};#" "$1"
++	fi
++}
++
++change_igel () {
++	if [ -e "$1" ]; then
++		sed -i "s#^\(grub2[ \t]\{1,\}${PKGNAME}_\)[^ \t]\{1,\}\([ \t]\)#\1${PKGVERSION%%ubuntu*}\2#" "$1"
++		SVNURL="$(sed -n "s#^grub2[ \t]\{1,\}[^ \t]\{1,\}[ \t]\{1,\}[^ \t]\{1,\}[ \t]\{1,\}\([^ \t]\{1,\}\)[ \t]*.*#\1# p" "$1")"
++		REV="$(svn info $SVNURL | sed -n "s#^Revision:[ \t]*\([0-9]\{1,\}\)[ \t]*.*#\1# p")"
++		if [ "$REV" != "" ]; then
++			sed -i "s#^\(grub2[ \t]\{1,\}[^ \t]\{1,\}[ \t]\{1,\}\)[^ \t]\{1,\}\([ \t]\)#\1r$REV\2#" "$1"
++		fi
++	fi
++}
++
++change_bootcode () {
++	if [ -e "$1" -a "$BOOTCODE" != "" ]; then
++		cat > /dev/shm/ch_boot_awk.$$ << EOF
++BEGIN {
++	u=0
++	b=0
++	n=0
++	bootcode="$BOOTCODE"
++}
++
++{
++	if (match(\$0,"<update>")) {
++		u=1
++	}
++
++	if (match(\$0,"<[/]update>")) {
++		u=0
++		b=0
++		n=0
++	}
++	if (u == 1 && match(\$0,"<bootcode>")) {
++		b=1
++	}
++
++	if (b == 1 && match(\$0,"<[/]bootcode>")) {
++		b=0
++		n=0
++	}
++
++	if (b == 1 && match(\$0,"<new_version>")) {
++		n=1
++	}
++
++	if (n == 1 && match(\$0,"<[/]new_version>")) {
++		n=0
++	}
++
++	if (n == 1 && match(\$0,"^[ \t]*value=<")) {
++		tmp=\$0
++		str = "value=<" bootcode ">"
++		gsub(/value=<.*>/, str, tmp)
++		printf("%s\n", tmp)
++	} else {
++		print \$0
++	}
++}
++EOF
++		cp "$1" "${1}_awk_tmp.$$"
++		cat "${1}_awk_tmp.$$" | awk -f /dev/shm/ch_boot_awk.$$ > "$1"
++		rm -f "${1}_awk_tmp.$$" /dev/shm/ch_boot_awk.$$
++	fi
++}
++
++ACTION="$1"
++if [ "$ACTION" = "" ] ; then
++        print_usage
++fi
++
++# check if we are called from the right position
++if [ "$0" != "./igel_build_and_copy.sh" ] ; then
++	echo "$0 \n"
++        echo "ERROR: call ./igel_build_and_copy command inside the directory, where it is installed."
++        exit 1
++fi
++
++case "$ACTION" in
++    debian)
++	check_root
++	if [ "$(which lscpu)" != "" ]; then
++		CPUS="$(lscpu | sed -n "s#CPU(s):[ \t]\{1,\}\([1-9][0-9]*\)[ \t]*.*#\1# p")"
++	else
++		CPUS="2"
++	fi
++	DEB_BUILD_OPTIONS="nocheck parallel=$CPUS" debian/rules build
++	;;
++    make)
++	check_root
++	if [ ! -d obj/grub-efi-amd64 ] || [ ! -d obj/grub-pc ] ; then
++		echo "ERROR: obj directory is not present. Call ./igel_build_and_copy debian first!"
++		exit 1
++	fi
++	make -C obj/grub-efi-amd64/
++	make -C obj/grub-efi-ia32/
++	make -C obj/grub-pc/
++	exit 0
++	;;
++    build)
++	check_root
++	ALL_EFI_MODULES="`cat ./igel-all-modules-efi.lst`"
++	IGEL_MODULES="part_igel igelfs"
++	# strip igel modules from fs.lst
++	grep -v ^igel obj/grub-efi-amd64/grub-core/fs.lst > obj/grub-efi-amd64/grub-core/fs.lst.modified
++	mv obj/grub-efi-amd64/grub-core/fs.lst.modified obj/grub-efi-amd64/grub-core/fs.lst
++	obj/grub-efi-amd64/grub-mkstandalone -d obj/grub-efi-amd64/grub-core/  --install-modules="" --modules "$ALL_EFI_MODULES $IGEL_MODULES" -o igel_grub2/lx/uefi/igelx64.efi -O x86_64-efi --fonts="" --locales="" --themes="" --compress=gz /boot/grub/grub.cfg=./igel-lx_os-grub-efi.cfg
++	obj/grub-pc/grub-mkimage -p /boot/grub -v -O i386-pc -d obj/grub-pc/grub-core -c ./igel-lx_os-grub-pc.cfg gfxterm biosdisk part_gpt linux part_msdos fat search configfile part_igel igelfs -o igel_grub2/lx/bios/core.img
++	obj/grub-efi-amd64/grub-mkstandalone -d obj/grub-efi-amd64/grub-core/ --install-modules="" --modules="$ALL_EFI_MODULES" -o igel_grub2/udc/uefi/igelx64.efi -O x86_64-efi --fonts="" --locales="" --themes="" --compress=gz /boot/grub/grub.cfg=./igel-udc-grub-efi.cfg
++	obj/grub-pc/grub-mkimage -p /boot/grub -v -O i386-pc -d obj/grub-pc/grub-core -c ./igel-udc-grub-pc.cfg biosdisk part_gpt linux part_msdos iso9660 fat search configfile -o igel_grub2/udc/bios/core.img
++	grep -v ^igel obj/grub-efi-ia32/grub-core/fs.lst > obj/grub-efi-ia32/grub-core/fs.lst.modified
++	mv obj/grub-efi-ia32/grub-core/fs.lst.modified obj/grub-efi-ia32/grub-core/fs.lst
++	obj/grub-efi-ia32/grub-mkstandalone -d obj/grub-efi-ia32/grub-core/  --install-modules="" --modules "$ALL_EFI_MODULES $IGEL_MODULES" -o igel_grub2/lx/uefi/igelia32.efi -O i386-efi --fonts="" --locales="" --themes="" --compress=gz /boot/grub/grub.cfg=./igel-lx_os-grub-efi.cfg
++	obj/grub-efi-ia32/grub-mkstandalone -d obj/grub-efi-ia32/grub-core/  --install-modules="" --modules "$ALL_EFI_MODULES" -o igel_grub2/udc/uefi/igelia32.efi -O i386-efi --fonts="" --locales="" --themes="" --compress=gz /boot/grub/grub.cfg=./igel-udc-grub-efi.cfg
++	exit 0
++	;;
++    copy)
++        SVN_DIR="$2"
++        if [ "$SVN_DIR" = "" ] ; then
++                echo "You didn't specify a base directory."
++                print_usage
++		exit 1
++        fi
++        if [ ! -d "${SVN_DIR}" ] ; then
++                echo "ERROR: directory $SOURCEDIR doesn't exist."
++                exit 1
++        fi
++	echo "Copying files to ${SVN_DIR}"
++	PKGNAME="grub2"
++	PKGDISTRI="artful"
++	PKGVERSION="2.02~beta3-4ubuntu6"
++	BOOTCODE="$(sed -n "s:^[ \t]*#define[ \t]\{1,\}BOOTVERSION[ \t]\{1,\}\([^ \t]\{1,\}\)[ \t]*.*:\1: p" grub-core/fs/igelfs.c)"
++	if [ -e debian/changelog ]; then
++		eval $(head -n 2 debian/changelog | sed -n "s#^\([^ \t]\{1,\}\)[ \t]\{1,\}(\([^)]\{1,\}\))[ \t]\{1,\}\([^ \t;]\{1,\}\);.*#PKGNAME=\"\1\"; PKGVERSION=\"\2\"; PKGDISTRI=\"\3\";# p" )
++	fi
++	change_bootcode ${SVN_DIR}/modules/misc/igel/bootloader_lx_os/config/config.param
++	rm -f ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_LX_OS/arch/amd64/data/root/efi/boot/bootx64.efi
++	cp igel_grub2/lx/uefi/igelx64.efi ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_LX_OS/arch/amd64/data/root/efi/boot/igelx64.efi
++	change_ubuntu ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_LX_OS/arch/amd64/src/ubuntu
++	change_igel ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_LX_OS/arch/amd64/src/igel_gpl
++	rm -f ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_LX_OS/arch/amd64/data/root/efi/boot/bootia32.efi
++	cp igel_grub2/lx/uefi/igelia32.efi ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_LX_OS/arch/amd64/data/root/efi/boot/igelia32.efi
++	change_ubuntu ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_LX_OS/arch/amd64/src/ubuntu
++	change_igel ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_LX_OS/arch/amd64/src/igel_gpl
++	cp igel_grub2/lx/bios/core.img ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_LX_OS/arch/amd64/data/root/boot/core.img
++	change_ubuntu ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_LX_OS/arch/amd64/src/ubuntu
++	change_igel ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_LX_OS/arch/amd64/src/igel_gpl
++	rm -f ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_UDC/arch/amd64/data/root/efi/boot/bootx64.efi
++	cp igel_grub2/udc/uefi/igelx64.efi ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_UDC/arch/amd64/data/root/efi/boot/igelx64.efi
++	change_ubuntu ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_UDC/arch/amd64/src/ubuntu
++	change_igel ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-amd64-bin_UDC/arch/amd64/src/igel_gpl
++	rm -f ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_UDC/arch/amd64/data/root/efi/boot/bootia32.efi
++	cp igel_grub2/udc/uefi/igelia32.efi ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_UDC/arch/amd64/data/root/efi/boot/igelia32.efi
++	change_ubuntu ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_UDC/arch/amd64/src/ubuntu
++	change_igel ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-efi-ia32-bin_UDC/arch/amd64/src/igel_gpl
++	cp igel_grub2/udc/bios/core.img ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_UDC/arch/amd64/data/root/boot/core.img
++	change_ubuntu ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_UDC/arch/amd64/src/ubuntu
++	change_igel ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_UDC/arch/amd64/src/igel_gpl
++	touch ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_UDC/arch/amd64/data/root/boot/igel-ud-converter
++	cp obj/grub-pc/grub-core/*.mod ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_LX_OS/arch/amd64/data/root/boot/grub/i386-pc/
++        cp obj/grub-pc/grub-core/*.mod ${SVN_DIR}/modules/xenial/ubuntu/igel/admin/grub-pc-bin_UDC/arch/amd64/data/root/boot/grub/i386-pc/
++	;;
++     *)
++	print_usage
++	exit 1
++	;;
++esac
+diff -Naurp grub2_2.02~beta3-4.ori/igel-lx_os-grub-efi.cfg grub2_2.02~beta3-4/igel-lx_os-grub-efi.cfg
+--- grub2_2.02~beta3-4.ori/igel-lx_os-grub-efi.cfg	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/igel-lx_os-grub-efi.cfg	2016-11-25 09:09:13.214373000 +0100
+@@ -0,0 +1,8 @@
++configfile $cmdpath/efi.cfg
++if [ -e $cmdpath/boot/efi.cfg ]; then
++	configfile $cmdpath/boot/efi.cfg
++else
++	if [ -e $cmdpath/efi/boot/efi.cfg ]; then
++		configfile $cmdpath/efi/boot/efi.cfg
++	fi
++fi
+diff -Naurp grub2_2.02~beta3-4.ori/igel-lx_os-grub-pc.cfg grub2_2.02~beta3-4/igel-lx_os-grub-pc.cfg
+--- grub2_2.02~beta3-4.ori/igel-lx_os-grub-pc.cfg	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/igel-lx_os-grub-pc.cfg	2016-05-04 09:08:09.661675000 +0200
+@@ -0,0 +1,9 @@
++search --file --set root /.active
++set cmdpath=($root)
++set prefix=$cmdpath/boot/grub
++
++insmod linux
++insmod configfile
++
++configfile $prefix/grub.cfg
++
+diff -Naurp grub2_2.02~beta3-4.ori/igel-udc-grub-efi.cfg grub2_2.02~beta3-4/igel-udc-grub-efi.cfg
+--- grub2_2.02~beta3-4.ori/igel-udc-grub-efi.cfg	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/igel-udc-grub-efi.cfg	2016-10-21 14:01:55.988908000 +0200
+@@ -0,0 +1,8 @@
++search --file --set search /boot/igel-ud-converter
++set cmdpath=($search)
++
++insmod efi_gop
++insmod efi_uga
++insmod part_msdos
++
++configfile $cmdpath/boot/grub/igel.conf
+diff -Naurp grub2_2.02~beta3-4.ori/igel-udc-grub-pc.cfg grub2_2.02~beta3-4/igel-udc-grub-pc.cfg
+--- grub2_2.02~beta3-4.ori/igel-udc-grub-pc.cfg	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/igel-udc-grub-pc.cfg	2016-10-21 14:01:55.988908000 +0200
+@@ -0,0 +1,13 @@
++if [ ! -e /boot/igel-ud-converter ] ; then
++	# search with physical cd drive probing done in bootdisk.mod
++	set PROBE_CD_DRIVES=yes
++	search --file --set root /boot/igel-ud-converter
++
++	set cmdpath=($root)
++	set prefix=$cmdpath/boot/grub
++fi
++
++insmod linux
++insmod configfile
++
++configfile $prefix/igel.conf
+diff -Naurp grub2_2.02~beta3-4.ori/include/grub/igel_partition.h grub2_2.02~beta3-4/include/grub/igel_partition.h
+--- grub2_2.02~beta3-4.ori/include/grub/igel_partition.h	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/include/grub/igel_partition.h	2016-09-20 10:50:37.780862000 +0200
+@@ -0,0 +1,50 @@
++/*
++ *  GRUB  --  GRand Unified Bootloader
++ *  Copyright (C) 1999,2000,2001,2002,2004,2007  Free Software Foundation, Inc.
++ *
++ *  GRUB is free software: you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation, either version 3 of the License, or
++ *  (at your option) any later version.
++ *
++ *  GRUB is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with GRUB.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#ifndef GRUB_IGEL_PARTITION_HEADER
++#define GRUB_IGEL_PARTITION_HEADER	1
++
++#include <grub/types.h>
++#include <grub/partition.h>
++#include <grub/disk.h>
++#include <grub/mm.h>
++
++#define GRUB2_BOOTCODE 1
++
++/* function prototypes needed by directory.c */
++grub_uint32_t updcrc(unsigned char *s, unsigned int n);
++void makecrc(void);
++grub_err_t igelpart_disk_read (grub_disk_t disk, grub_uint64_t offset, grub_size_t size, void *buf);
++
++#define uint8_t grub_uint8_t
++#define uint16_t grub_uint16_t
++#define uint32_t grub_uint32_t
++#define uint64_t grub_uint64_t
++#define u_int8_t grub_uint8_t
++#define u_int16_t grub_uint16_t
++#define u_int32_t grub_uint32_t
++#define u_int64_t grub_uint64_t
++#define loff_t grub_uint64_t
++typedef unsigned long size_t;
++
++#include "/usr/include/igel64/igel.h"
++
++/* Maximum size of the sys partition where the kernel could be (can be easily extended) currently 32 MB*/
++#define MAX_KERNEL_SYS_SECTIONS (32 << 20) / IGF_SECTION_SIZE
++
++#endif /* ! GRUB_IGEL_PARTITION_HEADER */
+diff -Naurp grub2_2.02~beta3-4.ori/startup.nsh grub2_2.02~beta3-4/startup.nsh
+--- grub2_2.02~beta3-4.ori/startup.nsh	1970-01-01 01:00:00.000000000 +0100
++++ grub2_2.02~beta3-4/startup.nsh	2016-02-29 10:24:14.667885000 +0100
+@@ -0,0 +1,5 @@
++@echo -off
++
++if exist fs0:\efi\boot\bootx64.efi then
++	fs0:\efi\boot\bootx64.efi
++endif
