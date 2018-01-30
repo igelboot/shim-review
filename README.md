@@ -77,7 +77,7 @@ see also file shim_igelbuild_20180126_150135.log
 -------------------------------------------------------------------------------
 Which files in this repo are the logs for your build?   This should include logs for creating the buildroots, applying patches, doing the build, creating the archives, etc.
 -------------------------------------------------------------------------------
-shim_igelbuild_20171220_141246.log
+shim_igelbuild_20180126_150135.log
 
 -------------------------------------------------------------------------------
 Put info about what bootloader you're using, including which patches it includes to enforce Secure Boot here:
